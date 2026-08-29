@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "config.h"
+#include "led_mapping.h"
 #include "moonboard_protocol.h"
 #include "wled_client.h"
 
@@ -67,19 +68,29 @@ RgbColor colorForHold(char holdType)
 
 bool setLogicalLed(uint16_t logicalPosition, const RgbColor &color)
 {
-    const size_t physicalPosition = logicalPosition * LED_OFFSET;
-    if (physicalPosition >= PHYSICAL_LED_COUNT)
+    uint16_t physicalPosition = 0;
+    if (!logicalToPhysicalLed(
+            logicalPosition,
+            LOGICAL_TO_PHYSICAL_LED,
+            LED_MAPPING_COUNT,
+            PHYSICAL_LED_COUNT,
+            physicalPosition))
         return false;
+
     leds[physicalPosition] = color;
     return true;
 }
 
 bool logicalLedIsBlack(uint16_t logicalPosition)
 {
-    const size_t physicalPosition = logicalPosition * LED_OFFSET;
-    return
-        physicalPosition >= PHYSICAL_LED_COUNT ||
-        leds[physicalPosition].isBlack();
+    uint16_t physicalPosition = 0;
+    return !logicalToPhysicalLed(
+               logicalPosition,
+               LOGICAL_TO_PHYSICAL_LED,
+               LED_MAPPING_COUNT,
+               PHYSICAL_LED_COUNT,
+               physicalPosition) ||
+           leds[physicalPosition].isBlack();
 }
 
 void resetLights()
@@ -272,6 +283,15 @@ void setup()
 
     if (!wledClient.validateConfiguration())
         Serial.println("[SETUP] WLED configuration contains errors");
+
+    if (!validateLedMapping(
+            LOGICAL_TO_PHYSICAL_LED,
+            LED_MAPPING_COUNT,
+            PHYSICAL_LED_COUNT))
+    {
+        Serial.println(
+            "[SETUP] LED mapping contains duplicates or invalid WLED IDs");
+    }
 
     Serial.println("[BLE] Starting Nordic UART service as MoonBoard");
     if (!bleSerial.begin(const_cast<char *>(BLE_NAME)))

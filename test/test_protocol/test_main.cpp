@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include "config.h"
+#include "led_mapping.h"
 #include "moonboard_protocol.h"
 #include "wled_payload.h"
 
@@ -116,6 +118,40 @@ void test_wled_payload_is_empty_without_lit_pixels()
     TEST_ASSERT_TRUE(payload.empty());
 }
 
+void test_explicit_led_mapping_supports_leading_leds_and_gaps()
+{
+    const uint16_t mapping[] = {10, 11, 15, 14};
+    uint16_t physicalPosition = 0;
+
+    TEST_ASSERT_TRUE(logicalToPhysicalLed(0, mapping, 4, 20, physicalPosition));
+    TEST_ASSERT_EQUAL_UINT16(10, physicalPosition);
+    TEST_ASSERT_TRUE(logicalToPhysicalLed(2, mapping, 4, 20, physicalPosition));
+    TEST_ASSERT_EQUAL_UINT16(15, physicalPosition);
+    TEST_ASSERT_TRUE(logicalToPhysicalLed(3, mapping, 4, 20, physicalPosition));
+    TEST_ASSERT_EQUAL_UINT16(14, physicalPosition);
+    TEST_ASSERT_FALSE(logicalToPhysicalLed(4, mapping, 4, 20, physicalPosition));
+}
+
+void test_led_mapping_validation_rejects_duplicates_and_invalid_ids()
+{
+    const uint16_t validMapping[] = {10, 11, 15, 14};
+    const uint16_t duplicateMapping[] = {10, 11, 10};
+    const uint16_t outOfRangeMapping[] = {10, 20};
+
+    TEST_ASSERT_TRUE(validateLedMapping(validMapping, 4, 20));
+    TEST_ASSERT_FALSE(validateLedMapping(duplicateMapping, 3, 20));
+    TEST_ASSERT_FALSE(validateLedMapping(outOfRangeMapping, 2, 20));
+}
+
+void test_checked_in_example_mapping_is_valid()
+{
+    TEST_ASSERT_TRUE(validateLedMapping(
+        LOGICAL_TO_PHYSICAL_LED,
+        LED_MAPPING_COUNT,
+        PHYSICAL_LED_COUNT));
+    TEST_ASSERT_EQUAL_UINT16(10, LOGICAL_TO_PHYSICAL_LED[0]);
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
@@ -125,5 +161,8 @@ int main(int argc, char **argv)
     RUN_TEST(test_snake_coordinates_and_above_hold_mapping);
     RUN_TEST(test_wled_payload_uses_local_ids_and_scaled_hex_colors);
     RUN_TEST(test_wled_payload_is_empty_without_lit_pixels);
+    RUN_TEST(test_explicit_led_mapping_supports_leading_leds_and_gaps);
+    RUN_TEST(test_led_mapping_validation_rejects_duplicates_and_invalid_ids);
+    RUN_TEST(test_checked_in_example_mapping_is_valid);
     return UNITY_END();
 }

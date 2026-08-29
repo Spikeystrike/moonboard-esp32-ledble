@@ -45,17 +45,31 @@ Select exactly one layout:
 #define MOONBOARD_MINI
 ```
 
-### Physical LED spacing
+### Physical LED mapping
 
-`LED_OFFSET` maps a logical MoonBoard position to a physical WLED LED ID. With
-an offset of `2`, logical positions `0`, `1`, and `2` use physical LED IDs `0`,
-`2`, and `4`:
+`LOGICAL_TO_PHYSICAL_LED` maps every logical MoonBoard position to an arbitrary
+physical WLED LED ID. The array index is the MoonBoard position and its value is
+the WLED ID. This supports unrelated LEDs before the MoonBoard, gaps in the LED
+chain, and a physical order that differs completely from the standard layout:
 
 ```cpp
-const uint8_t LED_OFFSET = 2;
+constexpr uint16_t LOGICAL_TO_PHYSICAL_LED[] = {
+    10, // logical position 0 (A1) uses WLED ID 10
+    11, // logical position 1 (A2) uses WLED ID 11
+    15, // logical position 2 (A3) skips WLED IDs 12-14
+    14, // arbitrary order is allowed
+    // one entry for every remaining MoonBoard position
+};
 ```
 
-WLED must be configured with at least `LOGICAL_LED_COUNT * LED_OFFSET` LEDs.
+The checked-in one-controller example reserves WLED IDs `0-9` before the
+MoonBoard, skips one unrelated LED after every MoonBoard column, and leaves a
+few IDs after the board. Set `PHYSICAL_LED_COUNT` to the total number of LEDs
+configured in WLED, including all LEDs that are not used by the MoonBoard.
+
+Every mapped ID must be smaller than `PHYSICAL_LED_COUNT` and may occur only
+once. The firmware validates these rules at startup. LEDs that do not appear in
+the mapping remain unused by MoonBoard routes.
 
 ### WLED controllers
 
@@ -68,7 +82,8 @@ const WledControllerConfig WLED_CONTROLLERS[] = {
 };
 ```
 
-For two controllers, continue the global numbering and do not overlap ranges:
+If the installation is later split across two controllers, continue the global
+numbering and do not overlap ranges:
 
 ```cpp
 const WledControllerConfig WLED_CONTROLLERS[] = {
@@ -112,8 +127,8 @@ of tracking a moving branch.
 ## Tests
 
 The native tests cover BLE message framing, problem parsing, snake-layout
-coordinates, above-hold mapping, global-to-local WLED IDs, and brightness
-scaling:
+coordinates, above-hold mapping, explicit and invalid LED mappings,
+global-to-local WLED IDs, and brightness scaling:
 
 ```sh
 pio test -e native
@@ -123,8 +138,8 @@ pio test -e native
 
 The standard snake layout starts at the lower-left hold, goes up the first
 column, down the second column, and repeats. MoonBoard positions are zero-based:
-`A1` is `0`, `A2` is `1`, and so on. `LED_OFFSET` is applied only after that
-logical position is decoded.
+`A1` is `0`, `A2` is `1`, and so on. The explicit mapping is applied only after
+that logical position is decoded.
 
 ## Network and power notes
 
