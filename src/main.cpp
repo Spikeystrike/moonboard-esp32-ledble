@@ -9,6 +9,7 @@
 #include "config.h"
 #include "led_mapping.h"
 #include "moonboard_protocol.h"
+#include "route_timeout.h"
 #include "wled_client.h"
 
 BLESerial bleSerial;
@@ -22,6 +23,8 @@ RgbColor leds[PHYSICAL_LED_COUNT];
 bool ledAboveHoldEnabled = false;
 bool lastEthernetReady = false;
 bool routeAlwaysOnLedConfigurationValid = false;
+bool routeActive = false;
+uint32_t routeStartedAtMs = 0;
 unsigned long lastEthernetStatusLog = 0;
 
 namespace
@@ -109,11 +112,29 @@ void applyRouteAlwaysOnLeds()
 
 void resetLights()
 {
+    routeActive = false;
     clearLocalLeds();
     if (ethernetReady())
         wledClient.reset();
     else
         Serial.println("[WLED] Reset deferred: Ethernet is not ready");
+}
+
+void maintainRouteTimeout()
+{
+    if (!routeTimeoutExpired(
+            routeActive,
+            ROUTE_TIMEOUT_MINUTES,
+            routeStartedAtMs,
+            static_cast<uint32_t>(millis())))
+    {
+        return;
+    }
+
+    Serial.printf(
+        "[ROUTE] Timeout after %u minutes; switching all LEDs off\n",
+        ROUTE_TIMEOUT_MINUTES);
+    resetLights();
 }
 
 void processConfiguration(const std::string &message)
@@ -146,6 +167,7 @@ void processProblem(const std::string &message)
     if (!parseProblem(message, holds))
     {
         Serial.println("[BLE] Ignoring malformed problem message");
+        routeActive = false;
         if (ethernetReady())
             wledClient.reset();
         ledAboveHoldEnabled = false;
@@ -191,7 +213,15 @@ void processProblem(const std::string &message)
     }
 
     if (!validHolds.empty())
+    {
         applyRouteAlwaysOnLeds();
+        routeActive = true;
+        routeStartedAtMs = static_cast<uint32_t>(millis());
+    }
+    else
+    {
+        routeActive = false;
+    }
 
     Serial.printf(
         "[WLED] Rendering %u holds (%s)\n",
@@ -337,6 +367,7 @@ void setup()
 
 void loop()
 {
+    maintainRouteTimeout();
     maintainEthernet();
 
     if (bleSerial.connected())

@@ -31,6 +31,8 @@ non-overlapping inclusive ranges of global physical LED IDs.
 - The app's `~Z*` command for switching all configured WLED controllers off.
 - An optional list of non-MoonBoard LEDs that stays illuminated while a valid
   route is displayed.
+- An optional route timeout that switches route, above-hold, and kicker LEDs
+  off together. A value of `0` keeps routes on indefinitely.
 - DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
   BLE remains active and the most recent route is rendered after reconnection.
 - Multiple WLED controllers with the same global-to-local LED range model as
@@ -92,6 +94,21 @@ scaled with `BOULDER_BRIGHTNESS_PERCENT`. Each ID must be unique, smaller than
 `PHYSICAL_LED_COUNT`, and absent from `LOGICAL_TO_PHYSICAL_LED`; invalid lists
 are reported on the serial console and are not applied.
 
+### Automatic route timeout
+
+`ROUTE_TIMEOUT_MINUTES` starts counting whenever a valid route is selected.
+Selecting another route restarts the timer. When it expires, every LED on the
+configured WLED controller is switched off, including above-hold and kicker
+LEDs:
+
+```cpp
+const uint16_t ROUTE_TIMEOUT_MINUTES = 15;
+```
+
+Set the value to `0` to leave the selected route on indefinitely. The timeout
+also continues while Ethernet is temporarily unavailable; an expired route is
+therefore not restored after reconnection.
+
 ### WLED controllers
 
 Replace the documentation address `192.0.2.10`. Each range is inclusive and
@@ -150,8 +167,9 @@ of tracking a moving branch.
 ## Tests
 
 The native tests cover BLE message framing, problem parsing, snake-layout
-coordinates, above-hold mapping, explicit and invalid LED mappings,
-global-to-local WLED IDs, and brightness scaling:
+coordinates, above-hold mapping, explicit and invalid LED mappings, route
+timeout behavior including `millis()` wraparound, global-to-local WLED IDs,
+and brightness scaling:
 
 ```sh
 pio test -e native

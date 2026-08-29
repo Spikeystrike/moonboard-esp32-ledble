@@ -6,6 +6,7 @@
 #include "config.h"
 #include "led_mapping.h"
 #include "moonboard_protocol.h"
+#include "route_timeout.h"
 #include "wled_payload.h"
 
 void setUp() {}
@@ -182,6 +183,24 @@ void test_checked_in_always_on_led_list_is_valid()
         LED_MAPPING_COUNT));
 }
 
+void test_route_timeout_can_be_disabled_and_restarts_per_route()
+{
+    TEST_ASSERT_FALSE(routeTimeoutExpired(false, 15, 1000, 901000));
+    TEST_ASSERT_FALSE(routeTimeoutExpired(true, 0, 1000, 901000));
+    TEST_ASSERT_FALSE(routeTimeoutExpired(true, 15, 1000, 900999));
+    TEST_ASSERT_TRUE(routeTimeoutExpired(true, 15, 1000, 901000));
+
+    // A newly selected route gets a new start time.
+    TEST_ASSERT_FALSE(routeTimeoutExpired(true, 15, 500000, 901000));
+}
+
+void test_route_timeout_handles_millis_wraparound()
+{
+    const uint32_t startedAt = 0xFFFFFFFFu - 30000u;
+    TEST_ASSERT_FALSE(routeTimeoutExpired(true, 1, startedAt, 29998u));
+    TEST_ASSERT_TRUE(routeTimeoutExpired(true, 1, startedAt, 30000u));
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
@@ -196,5 +215,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_checked_in_example_mapping_is_valid);
     RUN_TEST(test_unmapped_physical_led_validation);
     RUN_TEST(test_checked_in_always_on_led_list_is_valid);
+    RUN_TEST(test_route_timeout_can_be_disabled_and_restarts_per_route);
+    RUN_TEST(test_route_timeout_handles_millis_wraparound);
     return UNITY_END();
 }

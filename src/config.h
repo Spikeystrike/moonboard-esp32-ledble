@@ -90,6 +90,11 @@ constexpr size_t ROUTE_ALWAYS_ON_LED_COUNT =
 
 const uint8_t BOULDER_BRIGHTNESS_PERCENT = 80;
 const uint8_t ABOVE_HOLD_BRIGHTNESS_PERCENT = 10;
+
+// Switch off the route, above-hold lights, and optional kicker LEDs after
+// this many minutes. Set to 0 to keep the selected route on indefinitely.
+const uint16_t ROUTE_TIMEOUT_MINUTES = 15;
+
 const bool WLED_CHECK_AT_BOOT = true;
 const unsigned long WLED_CHECK_COLOR_DELAY_MS = 500;
 
