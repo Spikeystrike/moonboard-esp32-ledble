@@ -32,8 +32,20 @@ std::string buildWledStatePayload(
     const size_t lastLed = std::min<size_t>(
         controller.lastGlobalLed,
         ledCount - 1);
+    const uint16_t localLedCount = static_cast<uint16_t>(
+        lastLed - controller.firstGlobalLed + 1);
     std::string pixels;
     pixels.reserve((lastLed - controller.firstGlobalLed + 1) * 14);
+
+    // Clear the complete local controller range first. Later entries in the
+    // same WLED individual-pixel array overwrite only route and kicker LEDs.
+    char clearRange[32];
+    std::snprintf(
+        clearRange,
+        sizeof(clearRange),
+        "0,%u,\"000000\"",
+        localLedCount);
+    pixels = clearRange;
 
     char item[32];
     for (
@@ -50,8 +62,7 @@ std::string buildWledStatePayload(
         std::snprintf(
             item,
             sizeof(item),
-            "%s%u,\"%02X%02X%02X\"",
-            litLedCount == 0 ? "" : ",",
+            ",%u,\"%02X%02X%02X\"",
             localLed,
             scaleChannel(color.red, brightnessPercent),
             scaleChannel(color.green, brightnessPercent),
@@ -67,7 +78,9 @@ std::string buildWledStatePayload(
     std::snprintf(
         prefix,
         sizeof(prefix),
-        "{\"on\":true,\"bri\":255,\"seg\":{\"id\":%u,\"fx\":0,\"i\":[",
-        controller.segmentId);
+        "{\"seg\":{\"id\":%u,\"start\":0,\"stop\":%u,"
+        "\"fx\":0,\"i\":[",
+        controller.segmentId,
+        localLedCount);
     return std::string(prefix) + pixels + "]}}";
 }

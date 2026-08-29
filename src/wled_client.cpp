@@ -128,20 +128,31 @@ bool WledClient::render(
     size_t ledCount,
     uint8_t brightnessPercent)
 {
-    bool success = reset();
+    bool success = true;
     for (size_t index = 0; index < controllerCount_; ++index)
     {
+        const WledControllerConfig &controller = controllers_[index];
         size_t litLedCount = 0;
         const std::string payload = buildWledStatePayload(
             leds,
             ledCount,
-            controllers_[index],
+            controller,
             brightnessPercent,
             litLedCount);
         if (litLedCount == 0)
+        {
+            if (!postJson(controller, "{\"on\":false,\"bri\":255}"))
+                success = false;
             continue;
+        }
 
-        if (!postJson(controllers_[index], payload))
+        // WLED requires the device to be on before applying individual-pixel
+        // control. Keep this separate from the full segment frame so a route
+        // displayed from the off state is applied reliably.
+        if (!postJson(controller, "{\"on\":true,\"bri\":255}"))
+            success = false;
+
+        if (!postJson(controller, payload))
             success = false;
     }
     return success;

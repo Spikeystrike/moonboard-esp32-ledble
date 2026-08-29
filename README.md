@@ -12,10 +12,12 @@ MoonBoard app -- BLE --> Olimex ESP32-POE-ISO -- Ethernet/HTTP --> WLED --> LEDs
 
 The WLED output follows the approach used in
 [Spikeystrike/cruxwledbridge](https://github.com/Spikeystrike/cruxwledbridge):
-each update first switches the configured controllers off to clear stale
-pixels, then sends the active pixels as local LED IDs and hexadecimal colors to
-`/json/state`. Multiple controllers may own non-overlapping inclusive ranges
-of global physical LED IDs.
+each route update sends a complete segment frame to `/json/state`. The frame
+first clears the controller's entire physical LED range to black, then sets
+only route and optional kicker pixels as local LED IDs and hexadecimal colors.
+This avoids switching an active controller off between routes while ensuring
+that every unrelated LED remains dark. Multiple controllers may own
+non-overlapping inclusive ranges of global physical LED IDs.
 
 ## Supported behavior
 
@@ -112,8 +114,10 @@ const WledControllerConfig WLED_CONTROLLERS[] = {
 ```
 
 The firmware subtracts each controller's range start before sending local WLED
-pixel IDs. Plain hostnames and IPv4 addresses are accepted; WLED must be
-reachable by unencrypted HTTP from the Olimex Ethernet network.
+pixel IDs. The configured WLED segment is resized to the controller's complete
+local range on each route update so that all LEDs outside the MoonBoard mapping
+are cleared as well. Plain hostnames and IPv4 addresses are accepted; WLED must
+be reachable by unencrypted HTTP from the Olimex Ethernet network.
 
 Brightness, request timeout, boot test, and BLE name are configured in the
 same file. The boot test sends only three batched WLED frames (red, green, and

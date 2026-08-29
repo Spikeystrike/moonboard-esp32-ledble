@@ -91,8 +91,8 @@ void test_wled_payload_uses_local_ids_and_scaled_hex_colors()
 
     TEST_ASSERT_EQUAL_UINT32(2, litLedCount);
     TEST_ASSERT_EQUAL_STRING(
-        "{\"on\":true,\"bri\":255,\"seg\":{\"id\":0,\"fx\":0,"
-        "\"i\":[0,\"800000\",2,\"000080\"]}}",
+        "{\"seg\":{\"id\":0,\"start\":0,\"stop\":3,\"fx\":0,"
+        "\"i\":[0,3,\"000000\",0,\"800000\",2,\"000080\"]}}",
         payload.c_str());
 }
 
