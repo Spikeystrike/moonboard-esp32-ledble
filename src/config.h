@@ -78,10 +78,11 @@ static_assert(
     LED_MAPPING_COUNT == LOGICAL_LED_COUNT,
     "LED mapping must contain exactly one entry per logical MoonBoard LED");
 
-// Optional physical LEDs that illuminate together with every valid route.
-// These IDs must not occur in LOGICAL_TO_PHYSICAL_LED. The checked-in example
-// uses four of the unrelated LEDs before the MoonBoard. Set this to false to
-// disable the complete list without deleting it.
+// Optional kicker LEDs that illuminate together with every valid route.
+// These physical WLED IDs do not belong to the MoonBoard hold LEDs and must
+// not occur in LOGICAL_TO_PHYSICAL_LED. The checked-in example uses four of
+// the unrelated LEDs before the MoonBoard. Set this to false to leave the
+// kicker LEDs off without deleting the list.
 const bool ROUTE_ALWAYS_ON_LEDS_ENABLED = true;
 constexpr uint16_t ROUTE_ALWAYS_ON_LED_IDS[] = {0, 3, 6, 9};
 constexpr size_t ROUTE_ALWAYS_ON_LED_COUNT =
