@@ -1,82 +1,144 @@
-# A Simple MoonBoard BLE LED System for ESP32
+# MoonBoard BLE to WLED Bridge for Olimex ESP32-POE-ISO
 
-This project started as a fork of the very good [Moonboard LED on Arduino 33 BLE](https://github.com/FabianRig/ArduinoMoonBoardLED) project in order to add ESP32 chip support. But since then, the project has been almost completely rewritten for the BLE and problem processing parts. On top of that the BLE libraries are incompatible between Nano 33 BLE and ESP32 chips. So another project was born!
+This fork runs on an
+[Olimex ESP32-POE-ISO](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/open-source-hardware).
+It keeps the MoonBoard-compatible BLE interface from the original project, but
+does not drive a local LED data pin. Instead, it sends the selected holds over
+wired Ethernet to one or more WLED controllers through WLED's JSON API.
 
-This project aims at providing an easy to use solution for building your own MoonBoard LED system. It is both compatible with a normal MoonBoard as well as with the MoonBoard Mini.
+```text
+MoonBoard app -- BLE --> Olimex ESP32-POE-ISO -- Ethernet/HTTP --> WLED --> LEDs
+```
 
-If you want a product that just works, please buy the one offered by Moon Climbing it isn't that expensive for the provided service and will save you a lot off time and energy! This is a project for people having fun building things by themself and knowing the downside of doing it. This project will requires some work and still might not work as well as the original. To be absolutely clear: This project is provided as-is. I take absolutely no responsibility that it works as expected. In fact, it might break at any time. You have been warned!
+The WLED output follows the approach used in
+[Spikeystrike/cruxwledbridge](https://github.com/Spikeystrike/cruxwledbridge):
+each update first switches the configured controllers off to clear stale
+pixels, then sends the active pixels as local LED IDs and hexadecimal colors to
+`/json/state`. Multiple controllers may own non-overlapping inclusive ranges
+of global physical LED IDs.
 
+## Supported behavior
 
-▶️ [LEDs test sequence video](doc/leds_setup_sequence.mp4?raw=true)
+- MoonBoard Mini and MoonBoard Standard layouts.
+- Nordic UART BLE service with the same UUIDs and `MoonBoard` device name as
+  the ESP32 source project.
+- MoonBoard v1 and v2 problem messages.
+- Start, hand, foot, finish, left, right, and match-hold colors.
+- The app's `~D` option for an additional dim light above each hold. Route
+  colors take precedence if that position is itself part of the route.
+- The app's `~Z*` command for switching all configured WLED controllers off.
+- DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
+  BLE remains active and the most recent route is rendered after reconnection.
+- Multiple WLED controllers with the same global-to-local LED range model as
+  `cruxwledbridge`.
 
-## ℹ️ Hardware requirements
+## Configuration
 
-You need:
-- An ESP32 Devkit development Board
-- x4 (50pcs DC5V WS2811) with 25 cm wire length (or x8 with 15cm wire length and the LED_OFFSET constant set to 2)
-- An appropriate power source
+Edit [`src/config.h`](src/config.h) before flashing.
 
-⚡ Power consumption:
-- WS2811 LED seems to draw 20mA for each channel color, so at full brightness (R: 255, G: 255, B: 255) it should be (3 * 20mA) = 60mA
-- Standard Moonboard use 200 LEDs, if all LEDs are turned on white they'll draw (200 * 60mA /1000) * 5v = 60 Watts
-- The max number LEDs turned on is when running the LEDs check at boot. It'll light each LEDs to the colors red, then green, then blue and eventually violet. The max power used is for the violet color at full brightness R and B (255, 0, 255) so aproximatly ( 200 * 40mA / 1000 ) * 5v = 40 Watts. Aiming for a 60 Watts power source should be a good idea.
+### Board layout
 
-🛒 Hardware examples:
-- Leds [WS2811 5V 15cm](https://www.aliexpress.com/item/33044775305.html) (Aliexpress)
-- Power supply [Power supply 5v 12A 60W](https://www.aliexpress.com/item/4000035882551.html) (Aliexpress)
+Select exactly one layout:
 
-⚡ Power injection:
-- You can't power all the strips LEDs only from the first strip, you'll shortly notice weak ligthness of the LEDs after 2 strips due to voltage drop
-- The solution is to inject power each 50 LEDs (so each strip) or each 100 LEDs (this is my setup) from the power supply
+```cpp
+// #define MOONBOARD_STANDARD
+#define MOONBOARD_MINI
+```
 
-## 🔌 Wiring
+### Physical LED spacing
 
-![Schematic](doc/sketch_bb.png)
+`LED_OFFSET` maps a logical MoonBoard position to a physical WLED LED ID. With
+an offset of `2`, logical positions `0`, `1`, and `2` use physical LED IDs `0`,
+`2`, and `4`:
 
-## 🙏 Thanks
-All the heavy lifting in this project is done by two awesome libraries: [FastLED](https://github.com/FastLED/FastLED) (for the LED string) and [BLESerial](https://github.com/James-NZ/BLESerial) (for BLE functionality on ESP32). They make it possible to keep this project quite short, easy to understand, and easily maintainable.
+```cpp
+const uint8_t LED_OFFSET = 2;
+```
 
-Thanks to the two following projects for inspiration and proving this kind of project was easly doable on Arduino chip:
-- [Moonboard LED sytem on Arduino NRF52](https://github.com/e-sr/moonboard_nrf52)
-- [Moonboard LED on Arduino 33 BLE](https://github.com/FabianRig/ArduinoMoonBoardLED)
+WLED must be configured with at least `LOGICAL_LED_COUNT * LED_OFFSET` LEDs.
 
-## ✨ How to use
-1. Download and install Visual Studio Code.
-2. Install PlatformIO in Visual Studio Code.
-3. Download and open this project.
-4. Adjust to your needs (Moonboard type, LED offset, LED pin) in the `config.h` file.
-2. Compile and flash to an EPS32.
-3. Use the MoonBoard app to connect to the ESP32 and show the problems on your board!
+### WLED controllers
 
-## 🚦 LED Mapping
-The most common LED wiring pattern (here for a MoonBoard standard) goes like this (front view):
-- Start bottom left (A1),
-- Up the column (to A18),
-- One column to the right (to B18),
-- All the way down (to B1),
-- One column to the right (to C1),
-- And repeat.
+Replace the documentation address `192.0.2.10`. Each range is inclusive and
+uses global physical LED IDs. The last number is the WLED segment ID:
 
-The MoonBoard App encodes holds in the same way. Hold A1 is 0, hold A2 is 1, hold A3 is 2 and so on.
+```cpp
+const WledControllerConfig WLED_CONTROLLERS[] = {
+    {"192.168.1.50", 0, 299, 0},
+};
+```
 
-![LEDs](doc/leds_front_back.jpg)
+For two controllers, continue the global numbering and do not overlap ranges:
 
-## 💡 Good to know
-- Wiring: Usually, white is GND/negative, red is positive, green is data. Please double-check! It might be a good idea to use a resistor (e.g. 330 ohms) in the data line!
-- Never power the ESP32 only when it's connected to the LED string without powering the LED string! This might destroy the first LED!
-- The ESP32 does not need to be shutdown, you can simply unplug the power source! This is (at least for me) a big improvement when compared to a Raspberry Pi based solution.
+```cpp
+const WledControllerConfig WLED_CONTROLLERS[] = {
+    {"192.168.1.50", 0, 149, 0},
+    {"192.168.1.51", 150, 299, 0},
+};
+```
 
-## 📷 Pictures
+The firmware subtracts each controller's range start before sending local WLED
+pixel IDs. Plain hostnames and IPv4 addresses are accepted; WLED must be
+reachable by unencrypted HTTP from the Olimex Ethernet network.
 
-### ESP32 on a bredboard
+Brightness, request timeout, boot test, and BLE name are configured in the
+same file. The boot test sends only three batched WLED frames (red, green, and
+blue), instead of one HTTP request per LED.
 
-![LEDs](doc/wiring_global.jpg)
-![LEDs](doc/wiring_pins.jpg)
+## Build and flash
 
-### ESP32 soldered directly
+1. Install Visual Studio Code and PlatformIO.
+2. Open this repository.
+3. Configure `src/config.h`.
+4. Connect the Olimex board by USB for flashing.
+5. Build and upload the default `olimex-esp32-poe-iso` environment.
+6. Connect Ethernet/PoE and open the serial monitor at 115200 baud.
+7. Connect the MoonBoard app to the BLE device named `MoonBoard`.
 
-![LEDs](doc/minified_closeup.jpg)
+Command-line equivalents:
 
-### ESP32 and all strips LEDs ready for installation
+```sh
+pio run
+pio run --target upload
+pio device monitor
+```
 
-![LEDs](doc/minified_all_leds_strips.jpg)
+The PlatformIO board ID is `esp32-poe-iso`, and the build is pinned to
+PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two larger application
+slots because BLE, Ethernet, and HTTP together do not fit the board package's
+smaller default slot. The BLESerial dependency is pinned to a commit instead
+of tracking a moving branch.
+
+## Tests
+
+The native tests cover BLE message framing, problem parsing, snake-layout
+coordinates, above-hold mapping, global-to-local WLED IDs, and brightness
+scaling:
+
+```sh
+pio test -e native
+```
+
+## LED mapping
+
+The standard snake layout starts at the lower-left hold, goes up the first
+column, down the second column, and repeats. MoonBoard positions are zero-based:
+`A1` is `0`, `A2` is `1`, and so on. `LED_OFFSET` is applied only after that
+logical position is decoded.
+
+## Network and power notes
+
+- Give WLED a stable DHCP reservation so its configured address does not
+  change.
+- WLED, the Olimex, and the client network must be able to reach each other.
+- Power the LED strings from a correctly sized supply and inject power as
+  required. The Olimex no longer carries the LED data or LED power load.
+- The WLED JSON API uses segment individual-pixel control, so the configured
+  segment is returned to the Solid effect for each route.
+
+## Upstream
+
+This repository was forked from
+[labs-tibox/moonboard-esp32-ledble](https://github.com/labs-tibox/moonboard-esp32-ledble).
+The BLE protocol processing and original color semantics are retained; the
+local FastLED output has been replaced with Olimex Ethernet and WLED output.
