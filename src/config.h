@@ -78,6 +78,15 @@ static_assert(
     LED_MAPPING_COUNT == LOGICAL_LED_COUNT,
     "LED mapping must contain exactly one entry per logical MoonBoard LED");
 
+// Optional physical LEDs that illuminate together with every valid route.
+// These IDs must not occur in LOGICAL_TO_PHYSICAL_LED. The checked-in example
+// uses four of the unrelated LEDs before the MoonBoard. Set this to false to
+// disable the complete list without deleting it.
+const bool ROUTE_ALWAYS_ON_LEDS_ENABLED = true;
+constexpr uint16_t ROUTE_ALWAYS_ON_LED_IDS[] = {0, 3, 6, 9};
+constexpr size_t ROUTE_ALWAYS_ON_LED_COUNT =
+    sizeof(ROUTE_ALWAYS_ON_LED_IDS) / sizeof(ROUTE_ALWAYS_ON_LED_IDS[0]);
+
 const uint8_t BOULDER_BRIGHTNESS_PERCENT = 80;
 const uint8_t ABOVE_HOLD_BRIGHTNESS_PERCENT = 10;
 const bool WLED_CHECK_AT_BOOT = true;
@@ -106,3 +115,6 @@ const RgbColor COLOR_CYAN(0, 128, 128);
 const RgbColor COLOR_PINK(120, 50, 85);
 const RgbColor COLOR_PURPLE(105, 0, 150);
 const RgbColor COLOR_WHITE(255, 255, 255);
+
+// Always-on LEDs use the same BOULDER_BRIGHTNESS_PERCENT scaling as holds.
+const RgbColor ROUTE_ALWAYS_ON_LED_COLOR(255, 255, 255);

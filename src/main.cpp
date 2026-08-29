@@ -21,6 +21,7 @@ WledClient wledClient(
 RgbColor leds[PHYSICAL_LED_COUNT];
 bool ledAboveHoldEnabled = false;
 bool lastEthernetReady = false;
+bool routeAlwaysOnLedConfigurationValid = false;
 unsigned long lastEthernetStatusLog = 0;
 
 namespace
@@ -91,6 +92,19 @@ bool logicalLedIsBlack(uint16_t logicalPosition)
                PHYSICAL_LED_COUNT,
                physicalPosition) ||
            leds[physicalPosition].isBlack();
+}
+
+void applyRouteAlwaysOnLeds()
+{
+    if (
+        !ROUTE_ALWAYS_ON_LEDS_ENABLED ||
+        !routeAlwaysOnLedConfigurationValid)
+    {
+        return;
+    }
+
+    for (size_t index = 0; index < ROUTE_ALWAYS_ON_LED_COUNT; ++index)
+        leds[ROUTE_ALWAYS_ON_LED_IDS[index]] = ROUTE_ALWAYS_ON_LED_COLOR;
 }
 
 void resetLights()
@@ -175,6 +189,9 @@ void processProblem(const std::string &message)
             }
         }
     }
+
+    if (!validHolds.empty())
+        applyRouteAlwaysOnLeds();
 
     Serial.printf(
         "[WLED] Rendering %u holds (%s)\n",
@@ -291,6 +308,21 @@ void setup()
     {
         Serial.println(
             "[SETUP] LED mapping contains duplicates or invalid WLED IDs");
+    }
+
+    routeAlwaysOnLedConfigurationValid = validateUnmappedPhysicalLeds(
+        ROUTE_ALWAYS_ON_LED_IDS,
+        ROUTE_ALWAYS_ON_LED_COUNT,
+        PHYSICAL_LED_COUNT,
+        LOGICAL_TO_PHYSICAL_LED,
+        LED_MAPPING_COUNT);
+    if (
+        ROUTE_ALWAYS_ON_LEDS_ENABLED &&
+        !routeAlwaysOnLedConfigurationValid)
+    {
+        Serial.println(
+            "[SETUP] Always-on LED list contains duplicates, mapped LEDs, "
+            "or invalid WLED IDs");
     }
 
     Serial.println("[BLE] Starting Nordic UART service as MoonBoard");

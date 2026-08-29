@@ -40,3 +40,42 @@ bool validateLedMapping(
 
     return true;
 }
+
+bool validateUnmappedPhysicalLeds(
+    const uint16_t *physicalLeds,
+    size_t physicalLedCount,
+    uint16_t totalPhysicalLedCount,
+    const uint16_t *logicalMapping,
+    size_t logicalMappingCount)
+{
+    if (physicalLedCount == 0)
+        return true;
+    if (
+        physicalLeds == nullptr ||
+        totalPhysicalLedCount == 0 ||
+        (logicalMapping == nullptr && logicalMappingCount > 0))
+    {
+        return false;
+    }
+
+    for (size_t index = 0; index < physicalLedCount; ++index)
+    {
+        const uint16_t physicalLed = physicalLeds[index];
+        if (physicalLed >= totalPhysicalLedCount)
+            return false;
+
+        for (size_t previous = 0; previous < index; ++previous)
+        {
+            if (physicalLeds[previous] == physicalLed)
+                return false;
+        }
+
+        for (size_t logical = 0; logical < logicalMappingCount; ++logical)
+        {
+            if (logicalMapping[logical] == physicalLed)
+                return false;
+        }
+    }
+
+    return true;
+}

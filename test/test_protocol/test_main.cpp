@@ -152,6 +152,36 @@ void test_checked_in_example_mapping_is_valid()
     TEST_ASSERT_EQUAL_UINT16(10, LOGICAL_TO_PHYSICAL_LED[0]);
 }
 
+void test_unmapped_physical_led_validation()
+{
+    const uint16_t logicalMapping[] = {10, 11, 15, 14};
+    const uint16_t validAlwaysOn[] = {0, 3, 9};
+    const uint16_t duplicateAlwaysOn[] = {0, 3, 3};
+    const uint16_t overlappingAlwaysOn[] = {0, 15};
+    const uint16_t outOfRangeAlwaysOn[] = {0, 20};
+
+    TEST_ASSERT_TRUE(validateUnmappedPhysicalLeds(
+        validAlwaysOn, 3, 20, logicalMapping, 4));
+    TEST_ASSERT_TRUE(validateUnmappedPhysicalLeds(
+        nullptr, 0, 20, logicalMapping, 4));
+    TEST_ASSERT_FALSE(validateUnmappedPhysicalLeds(
+        duplicateAlwaysOn, 3, 20, logicalMapping, 4));
+    TEST_ASSERT_FALSE(validateUnmappedPhysicalLeds(
+        overlappingAlwaysOn, 2, 20, logicalMapping, 4));
+    TEST_ASSERT_FALSE(validateUnmappedPhysicalLeds(
+        outOfRangeAlwaysOn, 2, 20, logicalMapping, 4));
+}
+
+void test_checked_in_always_on_led_list_is_valid()
+{
+    TEST_ASSERT_TRUE(validateUnmappedPhysicalLeds(
+        ROUTE_ALWAYS_ON_LED_IDS,
+        ROUTE_ALWAYS_ON_LED_COUNT,
+        PHYSICAL_LED_COUNT,
+        LOGICAL_TO_PHYSICAL_LED,
+        LED_MAPPING_COUNT));
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
@@ -164,5 +194,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_explicit_led_mapping_supports_leading_leds_and_gaps);
     RUN_TEST(test_led_mapping_validation_rejects_duplicates_and_invalid_ids);
     RUN_TEST(test_checked_in_example_mapping_is_valid);
+    RUN_TEST(test_unmapped_physical_led_validation);
+    RUN_TEST(test_checked_in_always_on_led_list_is_valid);
     return UNITY_END();
 }

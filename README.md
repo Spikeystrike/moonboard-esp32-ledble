@@ -27,6 +27,8 @@ of global physical LED IDs.
 - The app's `~D` option for an additional dim light above each hold. Route
   colors take precedence if that position is itself part of the route.
 - The app's `~Z*` command for switching all configured WLED controllers off.
+- An optional list of non-MoonBoard LEDs that stays illuminated while a valid
+  route is displayed.
 - DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
   BLE remains active and the most recent route is rendered after reconnection.
 - Multiple WLED controllers with the same global-to-local LED range model as
@@ -70,6 +72,23 @@ configured in WLED, including all LEDs that are not used by the MoonBoard.
 Every mapped ID must be smaller than `PHYSICAL_LED_COUNT` and may occur only
 once. The firmware validates these rules at startup. LEDs that do not appear in
 the mapping remain unused by MoonBoard routes.
+
+### LEDs that are always on with a route
+
+`ROUTE_ALWAYS_ON_LED_IDS` contains physical WLED IDs that are not assigned to
+MoonBoard holds. They switch on whenever a valid route is displayed and switch
+off with the route reset command:
+
+```cpp
+const bool ROUTE_ALWAYS_ON_LEDS_ENABLED = true;
+constexpr uint16_t ROUTE_ALWAYS_ON_LED_IDS[] = {0, 3, 6, 9};
+const RgbColor ROUTE_ALWAYS_ON_LED_COLOR(255, 255, 255);
+```
+
+Set `ROUTE_ALWAYS_ON_LEDS_ENABLED` to `false` to disable the list. The color is
+scaled with `BOULDER_BRIGHTNESS_PERCENT`. Each ID must be unique, smaller than
+`PHYSICAL_LED_COUNT`, and absent from `LOGICAL_TO_PHYSICAL_LED`; invalid lists
+are reported on the serial console and are not applied.
 
 ### WLED controllers
 
