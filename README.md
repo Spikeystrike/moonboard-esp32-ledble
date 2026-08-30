@@ -37,6 +37,8 @@ that every unrelated LED remains dark.
 - A browser-based setup and calibration page served directly by the Olimex.
 - A remote live-log page that mirrors firmware messages without requiring a
   USB connection.
+- Password-protected firmware updates through the browser after the initial
+  USB installation.
 - Persistent WLED, brightness, timeout, kicker, and mapping settings stored in
   the ESP32's non-volatile storage (NVS).
 
@@ -93,6 +95,35 @@ buffer. Logs are deliberately not written to flash and are lost when the
 Olimex restarts. This avoids flash wear and prevents logging from consuming an
 unbounded amount of memory. Like the settings page, the log page has no login
 and is intended only for a trusted local network.
+
+### Firmware updates over Ethernet (OTA)
+
+Open `http://<olimex-ip>/ota` or use **Firmware aktualisieren** on the settings
+page. On the first visit, the firmware requires an OTA password with 8 to 64
+characters and stores only a salted PBKDF2-SHA-256 verification value in a
+separate NVS namespace. The password and all other saved settings survive OTA
+updates, power loss, and normal firmware uploads.
+
+Later visits require the password. A successful login creates one random
+in-memory browser session that expires after 30 minutes without activity and
+is discarded whenever the Olimex restarts. The authenticated page also allows
+the OTA password to be changed.
+
+Build the firmware normally and upload only this file:
+
+```text
+.pio/build/olimex-esp32-poe-iso/firmware.bin
+```
+
+Do not upload `bootloader.bin` or `partitions.bin` on the OTA page. The update
+is first written to the inactive application slot and checked before the
+Olimex restarts. The current firmware remains bootable if the transfer is
+interrupted before completion.
+
+The embedded web server uses HTTP rather than HTTPS, so the password is not
+encrypted while travelling over the network. Use OTA only in a trusted local
+network. If the password is forgotten, NVS must be erased over USB; this also
+removes the saved WLED and LED-mapping settings.
 
 ### Calibration mode
 
@@ -191,12 +222,15 @@ firmware defaults in `config.h`. The boot test sends three batched WLED frames
 1. Install Visual Studio Code and PlatformIO.
 2. Open this repository.
 3. Select Mini or Standard in `src/config.h`.
-4. Connect the Olimex board by USB for flashing.
+4. Connect the Olimex board by USB for the initial flashing.
 5. Build and upload the default `olimex-esp32-poe-iso` environment.
 6. Connect Ethernet/PoE. The 115200-baud serial monitor is optional and useful
    for discovering the initial DHCP address or diagnosing startup problems.
 7. Open `http://<olimex-ip>/`, configure WLED, and calibrate the mapping.
 8. Connect the MoonBoard app to the BLE device named `MoonBoard`.
+
+After the initial USB installation, later application-firmware versions can
+be installed through `http://<olimex-ip>/ota` without reconnecting USB.
 
 Command-line equivalents:
 
@@ -207,10 +241,10 @@ pio device monitor
 ```
 
 The PlatformIO board ID is `esp32-poe-iso`, and the build is pinned to
-PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two larger application
-slots because BLE, Ethernet, and HTTP together do not fit the board package's
-smaller default slot. The BLESerial dependency is pinned to a commit instead
-of tracking a moving branch.
+PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two application slots
+of about 1.9 MB each, which provide both enough room for BLE, Ethernet, HTTP,
+and OTA and an inactive target slot for safe updates. The BLESerial dependency
+is pinned to a commit instead of tracking a moving branch.
 
 ## Tests
 

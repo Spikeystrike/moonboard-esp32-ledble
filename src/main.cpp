@@ -439,6 +439,9 @@ void maintainEthernet()
         appLogPrintf(
             "[WEB] Open http://%s/logs for the remote live log\n",
             ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[OTA] Open http://%s/ota for firmware updates\n",
+            ETH.localIP().toString().c_str());
         wledClient.render(
             leds,
             runtimeSettings.physicalLedCount,
@@ -511,7 +514,8 @@ void setup()
         saveAndApplyRuntimeSettings,
         showCalibrationLed,
         resetLights);
-    appLogLine("[WEB] Settings, calibration, and live log listening on port 80");
+    appLogLine(
+        "[WEB] Settings, calibration, live log, and OTA listening on port 80");
     if (ethernetReady())
     {
         appLogPrintf(
@@ -519,6 +523,9 @@ void setup()
             ETH.localIP().toString().c_str());
         appLogPrintf(
             "[WEB] Open http://%s/logs for the remote live log\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[OTA] Open http://%s/ota for firmware updates\n",
             ETH.localIP().toString().c_str());
     }
     checkWledAtBoot();

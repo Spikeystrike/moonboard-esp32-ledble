@@ -6,6 +6,7 @@
 #include <string>
 
 #include "live_log.h"
+#include "ota_auth.h"
 #include "runtime_settings.h"
 
 class SettingsWebServer
@@ -36,6 +37,28 @@ private:
     void handleMappingUpdate();
     void handleMappingListUpdate();
     void handleTestLed();
+    void handleOtaPage();
+    void handleOtaSetup();
+    void handleOtaLogin();
+    void handleOtaLogout();
+    void handleOtaPasswordChange();
+    void handleOtaUploadData();
+    void handleOtaUploadComplete();
+    void sendOtaSetupPage(const std::string &message, int statusCode);
+    void sendOtaLoginPage(const std::string &message, int statusCode);
+    void sendOtaUploadPage(const std::string &message, int statusCode);
+    void sendOtaMessagePage(
+        const std::string &title,
+        const std::string &message,
+        int statusCode);
+    void sendOtaHtml(
+        const std::string &title,
+        const std::string &content,
+        int statusCode);
+    void beginOtaSession();
+    void clearOtaSession();
+    bool hasValidOtaSession(bool refresh = true);
+    void redirectToOta();
     void sendResult(bool success, const std::string &message);
 
     bool parseUnsignedArg(
@@ -52,4 +75,15 @@ private:
     ApplySettingsHandler applySettings_;
     TestLedHandler testLed_;
     AllOffHandler allOff_;
+    OtaAuthStore otaAuth_;
+    std::string otaSetupToken_;
+    std::string otaSessionToken_;
+    uint32_t otaSessionLastSeenMs_;
+    bool otaUploadAuthorized_;
+    bool otaUploadStarted_;
+    bool otaUploadSucceeded_;
+    std::string otaUploadError_;
+    size_t otaUploadSize_;
+    bool otaRestartPending_;
+    uint32_t otaRestartStartedAtMs_;
 };

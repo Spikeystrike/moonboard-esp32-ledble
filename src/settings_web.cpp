@@ -1,13 +1,22 @@
 #include "settings_web.h"
 
 #include <Arduino.h>
+#include <Update.h>
+#include <esp_random.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
 
+#include "app_log.h"
+
 namespace
 {
+constexpr uint32_t OTA_SESSION_TIMEOUT_MS = 30UL * 60UL * 1000UL;
+constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;
+constexpr size_t OTA_SESSION_RANDOM_BYTES = 24;
+
 const char SETTINGS_PAGE[] PROGMEM = R"HTML(
 <!doctype html><html lang="de"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -22,7 +31,7 @@ button{background:#175cd3;color:white;border:0;cursor:pointer}button.secondary{b
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.status{min-height:24px;font-weight:600}.error{color:#b42318}.ok{color:#027a48}
 textarea{min-height:105px;font-family:monospace;font-weight:400}.hint{color:#536273;font-size:.9rem}
 </style></head><body><h1>MoonBoard Bridge</h1><div id="summary"></div>
-<p><a href="/logs">Live-Log öffnen</a></p>
+<p><a href="/logs">Live-Log öffnen</a> · <a href="/ota">Firmware aktualisieren</a></p>
 <section><h2>Einstellungen</h2><form id="settings"><div class="grid">
 <label>WLED-Adresse<input id="host" required maxlength="63"></label>
 <label>Gesamte physische LEDs<input id="physical" type="number" min="1" max="2048" required></label>
@@ -41,7 +50,7 @@ textarea{min-height:105px;font-family:monospace;font-weight:400}.hint{color:#536
 <div class="actions"><button type="button" class="secondary" id="previous">Zurück</button><button type="button" class="secondary" id="next">Weiter</button><button type="button" id="testLed">LED testen</button><button type="button" id="assign">Zuordnen und speichern</button></div>
 <h3>Mapping importieren/exportieren</h3><textarea id="mapping"></textarea>
 <div class="actions"><button type="button" class="secondary" id="export">Aktuelles Mapping anzeigen</button><button type="button" id="import">Mapping prüfen und speichern</button></div></section>
-<div id="status" class="status"></div><p class="hint">Die Oberfläche besitzt keine Anmeldung und darf nur in einem vertrauenswürdigen lokalen Netzwerk erreichbar sein.</p>
+<div id="status" class="status"></div><p class="hint">Einstellungen und Live-Log besitzen keine Anmeldung. Firmware-Updates sind separat passwortgeschützt. Die Oberfläche darf nur in einem vertrauenswürdigen lokalen Netzwerk erreichbar sein.</p>
 <script>
 let cfg;
 const $=id=>document.getElementById(id);
@@ -104,6 +113,110 @@ std::string jsonEscape(const char *value)
     return result;
 }
 
+std::string htmlEscape(const std::string &value)
+{
+    std::string result;
+    result.reserve(value.size());
+    for (const char character : value)
+    {
+        switch (character)
+        {
+        case '&':
+            result += "&amp;";
+            break;
+        case '<':
+            result += "&lt;";
+            break;
+        case '>':
+            result += "&gt;";
+            break;
+        case '"':
+            result += "&quot;";
+            break;
+        case '\'':
+            result += "&#39;";
+            break;
+        default:
+            result += character;
+            break;
+        }
+    }
+    return result;
+}
+
+std::string otaDocument(
+    const std::string &title,
+    const std::string &content)
+{
+    return
+        "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>" + htmlEscape(title) + "</title><style>"
+        ":root{font-family:system-ui,sans-serif;color:#17202a;background:#eef2f5}"
+        "body{max-width:620px;margin:auto;padding:16px}"
+        "section{background:#fff;border-radius:12px;padding:20px;margin:16px 0;box-shadow:0 2px 10px #0001}"
+        "label{display:flex;flex-direction:column;gap:5px;font-weight:600;margin:12px 0}"
+        "input,button{box-sizing:border-box;width:100%;font:inherit;padding:10px;border:1px solid #b8c2cc;border-radius:7px}"
+        "button{background:#175cd3;color:#fff;border:0;cursor:pointer;margin-top:8px}"
+        "button.secondary{background:#536273}.message{padding:10px;border-radius:7px;background:#fff3cd;color:#664d03}"
+        ".error{background:#fef3f2;color:#b42318}.ok{background:#ecfdf3;color:#027a48}"
+        ".hint{color:#536273;font-size:.9rem}a{color:#175cd3}"
+        "</style></head><body><h1>MoonBoard Firmware-Update</h1>" +
+        content + "</body></html>";
+}
+
+std::string randomHexToken()
+{
+    uint8_t randomBytes[OTA_SESSION_RANDOM_BYTES];
+    esp_fill_random(randomBytes, sizeof(randomBytes));
+    constexpr char HEX_DIGITS[] = "0123456789abcdef";
+    std::string token;
+    token.reserve(sizeof(randomBytes) * 2);
+    for (const uint8_t value : randomBytes)
+    {
+        token += HEX_DIGITS[value >> 4];
+        token += HEX_DIGITS[value & 0x0F];
+    }
+    return token;
+}
+
+std::string cookieValue(const std::string &cookies, const char *name)
+{
+    const std::string prefix = std::string(name) + '=';
+    size_t start = 0;
+    while (start < cookies.size())
+    {
+        const size_t end = cookies.find(';', start);
+        size_t fieldStart = start;
+        while (fieldStart < cookies.size() && cookies[fieldStart] == ' ')
+            ++fieldStart;
+        const size_t fieldEnd =
+            end == std::string::npos ? cookies.size() : end;
+        if (cookies.compare(fieldStart, prefix.size(), prefix) == 0)
+        {
+            return cookies.substr(
+                fieldStart + prefix.size(),
+                fieldEnd - fieldStart - prefix.size());
+        }
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    return std::string();
+}
+
+bool constantTimeEquals(
+    const std::string &candidate,
+    const std::string &expected)
+{
+    if (candidate.size() != expected.size())
+        return false;
+    uint8_t difference = 0;
+    for (size_t index = 0; index < expected.size(); ++index)
+        difference |= candidate[index] ^ expected[index];
+    return difference == 0;
+}
+
 bool parseColor(const String &text, RgbColor &color)
 {
     const char *start = text.c_str();
@@ -133,7 +246,14 @@ SettingsWebServer::SettingsWebServer()
       settings_(nullptr),
       liveLog_(nullptr),
       boardName_(""),
-      boardRows_(0)
+      boardRows_(0),
+      otaSessionLastSeenMs_(0),
+      otaUploadAuthorized_(false),
+      otaUploadStarted_(false),
+      otaUploadSucceeded_(false),
+      otaUploadSize_(0),
+      otaRestartPending_(false),
+      otaRestartStartedAtMs_(0)
 {
 }
 
@@ -154,6 +274,17 @@ void SettingsWebServer::begin(
     testLed_ = testLed;
     allOff_ = allOff;
 
+    std::string otaAuthError;
+    if (!otaAuth_.load(otaAuthError))
+        appLogPrintf("[OTA] %s\n", otaAuthError.c_str());
+    else if (otaAuth_.configured())
+        appLogLine("[OTA] Password protection loaded from NVS");
+    else
+        appLogLine("[OTA] Password will be set on the first OTA-page visit");
+
+    const char *collectedHeaders[] = {"Cookie"};
+    server_.collectHeaders(collectedHeaders, 1);
+
     server_.on("/", HTTP_GET, [this]() {
         server_.send_P(200, "text/html; charset=utf-8", SETTINGS_PAGE);
     });
@@ -172,6 +303,18 @@ void SettingsWebServer::begin(
         allOff_();
         sendResult(true, "All LEDs switched off");
     });
+    server_.on("/ota", HTTP_GET, [this]() { handleOtaPage(); });
+    server_.on("/ota/setup", HTTP_POST, [this]() { handleOtaSetup(); });
+    server_.on("/ota/login", HTTP_POST, [this]() { handleOtaLogin(); });
+    server_.on("/ota/logout", HTTP_POST, [this]() { handleOtaLogout(); });
+    server_.on("/ota/password", HTTP_POST, [this]() {
+        handleOtaPasswordChange();
+    });
+    server_.on(
+        "/ota/upload",
+        HTTP_POST,
+        [this]() { handleOtaUploadComplete(); },
+        [this]() { handleOtaUploadData(); });
     server_.onNotFound([this]() {
         server_.send(404, "application/json", "{\"ok\":false,\"message\":\"Not found\"}");
     });
@@ -181,6 +324,15 @@ void SettingsWebServer::begin(
 void SettingsWebServer::handleClient()
 {
     server_.handleClient();
+    if (
+        otaRestartPending_ &&
+        static_cast<uint32_t>(millis()) - otaRestartStartedAtMs_ >=
+            OTA_RESTART_DELAY_MS)
+    {
+        appLogLine("[OTA] Restarting into the new firmware");
+        delay(50);
+        ESP.restart();
+    }
 }
 
 void SettingsWebServer::handleConfig()
@@ -420,6 +572,396 @@ void SettingsWebServer::handleTestLed()
     if (!testLed_(static_cast<uint16_t>(physical), error))
         return sendResult(false, error);
     sendResult(true, "Test LED enabled");
+}
+
+void SettingsWebServer::handleOtaPage()
+{
+    if (!otaAuth_.configured())
+    {
+        sendOtaSetupPage(std::string(), 200);
+        return;
+    }
+    if (!hasValidOtaSession())
+    {
+        sendOtaLoginPage(std::string(), 200);
+        return;
+    }
+    sendOtaUploadPage(std::string(), 200);
+}
+
+void SettingsWebServer::handleOtaSetup()
+{
+    if (otaAuth_.configured())
+    {
+        redirectToOta();
+        return;
+    }
+    const std::string setupToken = server_.hasArg("setupToken")
+        ? std::string(server_.arg("setupToken").c_str())
+        : std::string();
+    if (
+        otaSetupToken_.empty() ||
+        !constantTimeEquals(setupToken, otaSetupToken_))
+    {
+        otaSetupToken_ = randomHexToken();
+        sendOtaSetupPage("Ungültige oder abgelaufene Ersteinrichtung.", 403);
+        return;
+    }
+    if (!server_.hasArg("password") || !server_.hasArg("confirmation"))
+    {
+        sendOtaSetupPage("Bitte beide Passwortfelder ausfüllen.", 400);
+        return;
+    }
+
+    const std::string password = server_.arg("password").c_str();
+    const std::string confirmation = server_.arg("confirmation").c_str();
+    if (password != confirmation)
+    {
+        sendOtaSetupPage("Die Passwörter stimmen nicht überein.", 400);
+        return;
+    }
+
+    std::string error;
+    if (!otaAuth_.setPassword(password, error))
+    {
+        sendOtaSetupPage(error, 400);
+        return;
+    }
+
+    std::fill(otaSetupToken_.begin(), otaSetupToken_.end(), '\0');
+    otaSetupToken_.clear();
+    beginOtaSession();
+    appLogLine("[OTA] Initial password saved to NVS");
+    redirectToOta();
+}
+
+void SettingsWebServer::handleOtaLogin()
+{
+    if (!otaAuth_.configured())
+    {
+        sendOtaSetupPage(std::string(), 200);
+        return;
+    }
+
+    const std::string password = server_.hasArg("password")
+        ? std::string(server_.arg("password").c_str())
+        : std::string();
+    if (!otaAuth_.verifyPassword(password))
+    {
+        appLogLine("[OTA] Rejected login attempt");
+        delay(350);
+        sendOtaLoginPage("Falsches Passwort.", 401);
+        return;
+    }
+
+    beginOtaSession();
+    appLogLine("[OTA] Login successful");
+    redirectToOta();
+}
+
+void SettingsWebServer::handleOtaLogout()
+{
+    if (hasValidOtaSession(false))
+        clearOtaSession();
+    server_.sendHeader(
+        "Set-Cookie",
+        "ota_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict");
+    server_.sendHeader("Location", "/ota");
+    server_.send(303, "text/plain", "");
+}
+
+void SettingsWebServer::handleOtaPasswordChange()
+{
+    if (!otaAuth_.configured() || !hasValidOtaSession())
+    {
+        sendOtaLoginPage("Die Anmeldung ist abgelaufen.", 401);
+        return;
+    }
+    if (!server_.hasArg("password") || !server_.hasArg("confirmation"))
+    {
+        sendOtaUploadPage("Bitte beide neuen Passwortfelder ausfüllen.", 400);
+        return;
+    }
+
+    const std::string password = server_.arg("password").c_str();
+    const std::string confirmation = server_.arg("confirmation").c_str();
+    if (password != confirmation)
+    {
+        sendOtaUploadPage("Die neuen Passwörter stimmen nicht überein.", 400);
+        return;
+    }
+
+    std::string error;
+    if (!otaAuth_.setPassword(password, error))
+    {
+        sendOtaUploadPage(error, 400);
+        return;
+    }
+
+    appLogLine("[OTA] Password changed");
+    sendOtaMessagePage(
+        "Passwort geändert",
+        "Das neue OTA-Passwort wurde dauerhaft gespeichert.",
+        200);
+}
+
+void SettingsWebServer::handleOtaUploadData()
+{
+    HTTPUpload &upload = server_.upload();
+    if (upload.status == UPLOAD_FILE_START)
+    {
+        otaUploadAuthorized_ =
+            otaAuth_.configured() && hasValidOtaSession();
+        otaUploadStarted_ = false;
+        otaUploadSucceeded_ = false;
+        otaUploadError_.clear();
+        otaUploadSize_ = 0;
+
+        if (!otaUploadAuthorized_)
+        {
+            otaUploadError_ = "Die Anmeldung ist abgelaufen";
+            return;
+        }
+        if (otaRestartPending_)
+        {
+            otaUploadError_ = "Ein Neustart ist bereits geplant";
+            return;
+        }
+
+        String filename = upload.filename;
+        filename.toLowerCase();
+        if (filename.length() == 0 || !filename.endsWith(".bin"))
+        {
+            otaUploadError_ = "Bitte eine PlatformIO-firmware.bin auswählen";
+            return;
+        }
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH))
+        {
+            otaUploadError_ = Update.errorString();
+            if (otaUploadError_.empty())
+                otaUploadError_ = "Das OTA-Update konnte nicht gestartet werden";
+            return;
+        }
+
+        otaUploadStarted_ = true;
+        appLogPrintf(
+            "[OTA] Firmware upload started: %s\n",
+            upload.filename.c_str());
+        return;
+    }
+
+    if (upload.status == UPLOAD_FILE_WRITE)
+    {
+        if (!otaUploadStarted_ || !otaUploadError_.empty())
+            return;
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+        {
+            otaUploadError_ = Update.errorString();
+            if (otaUploadError_.empty())
+                otaUploadError_ = "Die Firmware konnte nicht vollständig geschrieben werden";
+            Update.abort();
+            otaUploadStarted_ = false;
+        }
+        return;
+    }
+
+    if (upload.status == UPLOAD_FILE_END)
+    {
+        otaUploadSize_ = upload.totalSize;
+        if (!otaUploadStarted_ || !otaUploadError_.empty())
+            return;
+        if (!Update.end(true))
+        {
+            otaUploadError_ = Update.errorString();
+            if (otaUploadError_.empty())
+                otaUploadError_ = "Die Firmwareprüfung ist fehlgeschlagen";
+            otaUploadStarted_ = false;
+            return;
+        }
+        otaUploadStarted_ = false;
+        otaUploadSucceeded_ = true;
+        return;
+    }
+
+    if (upload.status == UPLOAD_FILE_ABORTED)
+    {
+        if (Update.isRunning())
+            Update.abort();
+        otaUploadStarted_ = false;
+        otaUploadSucceeded_ = false;
+        otaUploadError_ = "Der Upload wurde abgebrochen";
+    }
+}
+
+void SettingsWebServer::handleOtaUploadComplete()
+{
+    if (!otaUploadAuthorized_)
+    {
+        sendOtaLoginPage("Die Anmeldung ist abgelaufen.", 403);
+        return;
+    }
+
+    if (!otaUploadSucceeded_)
+    {
+        if (otaUploadError_.empty())
+            otaUploadError_ = "Es wurde keine Firmwaredatei empfangen";
+        appLogPrintf("[OTA] Upload failed: %s\n", otaUploadError_.c_str());
+        sendOtaUploadPage(otaUploadError_, 400);
+        return;
+    }
+
+    appLogPrintf(
+        "[OTA] Firmware verified: %u bytes\n",
+        static_cast<unsigned>(otaUploadSize_));
+    sendOtaMessagePage(
+        "Update erfolgreich",
+        "Die Firmware wurde geprüft und gespeichert. Der Olimex startet jetzt neu.",
+        200);
+    otaRestartPending_ = true;
+    otaRestartStartedAtMs_ = static_cast<uint32_t>(millis());
+}
+
+void SettingsWebServer::sendOtaSetupPage(
+    const std::string &message,
+    int statusCode)
+{
+    if (otaSetupToken_.empty())
+        otaSetupToken_ = randomHexToken();
+    std::string content =
+        "<section><h2>OTA-Passwort erstmalig festlegen</h2>"
+        "<p>Vor dem ersten Firmware-Update muss einmalig ein Passwort gesetzt werden. Es bleibt in NVS gespeichert und gilt auch nach späteren Updates.</p>";
+    if (!message.empty())
+        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+    content +=
+        "<form method=\"post\" action=\"/ota/setup\">"
+        "<input type=\"hidden\" name=\"setupToken\" value=\"" +
+        otaSetupToken_ + "\">"
+        "<label>Neues Passwort<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<label>Passwort wiederholen<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<button type=\"submit\">Passwort speichern</button></form>"
+        "<p class=\"hint\">Das Passwort wird nur als gesalzener PBKDF2-SHA-256-Prüfwert gespeichert. Da die Seite HTTP verwendet, darf sie nur in einem vertrauenswürdigen lokalen Netzwerk benutzt werden.</p>"
+        "</section><p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
+    sendOtaHtml("OTA-Passwort festlegen", content, statusCode);
+}
+
+void SettingsWebServer::sendOtaLoginPage(
+    const std::string &message,
+    int statusCode)
+{
+    std::string content = "<section><h2>Anmelden</h2>";
+    if (!message.empty())
+        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+    content +=
+        "<form method=\"post\" action=\"/ota/login\">"
+        "<label>OTA-Passwort<input type=\"password\" name=\"password\" maxlength=\"64\" autocomplete=\"current-password\" required autofocus></label>"
+        "<button type=\"submit\">Anmelden</button></form>"
+        "<p class=\"hint\">Die Anmeldung bleibt 30 Minuten ab der letzten Aktivität gültig.</p>"
+        "</section><p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
+    sendOtaHtml("OTA-Anmeldung", content, statusCode);
+}
+
+void SettingsWebServer::sendOtaUploadPage(
+    const std::string &message,
+    int statusCode)
+{
+    std::string content = "<section><h2>Firmware hochladen</h2>";
+    if (!message.empty())
+        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+    content +=
+        "<p>Wähle ausschließlich die von PlatformIO erzeugte Datei <code>.pio/build/olimex-esp32-poe-iso/firmware.bin</code>. Bootloader- oder Partitionsdateien sind hier nicht geeignet.</p>"
+        "<p class=\"hint\">Verfügbarer OTA-Slot: etwa " +
+        std::to_string(ESP.getFreeSketchSpace() / 1024) +
+        " KiB. Strom und Netzwerk während des Uploads nicht trennen.</p>"
+        "<form id=\"upload\" method=\"post\" action=\"/ota/upload\" enctype=\"multipart/form-data\">"
+        "<label>Firmwaredatei<input type=\"file\" name=\"firmware\" accept=\".bin,application/octet-stream\" required></label>"
+        "<button id=\"uploadButton\" type=\"submit\">Firmware hochladen</button></form>"
+        "<script>document.getElementById('upload').onsubmit=()=>{const b=document.getElementById('uploadButton');b.disabled=true;b.textContent='Upload läuft …';}</script>"
+        "</section><section><h2>OTA-Passwort ändern</h2>"
+        "<form method=\"post\" action=\"/ota/password\">"
+        "<label>Neues Passwort<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<label>Passwort wiederholen<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<button type=\"submit\" class=\"secondary\">Passwort ändern</button></form></section>"
+        "<form method=\"post\" action=\"/ota/logout\"><button type=\"submit\" class=\"secondary\">Abmelden</button></form>"
+        "<p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
+    sendOtaHtml("Firmware hochladen", content, statusCode);
+}
+
+void SettingsWebServer::sendOtaMessagePage(
+    const std::string &title,
+    const std::string &message,
+    int statusCode)
+{
+    const std::string content =
+        "<section><h2>" + htmlEscape(title) + "</h2>"
+        "<p class=\"message ok\">" + htmlEscape(message) + "</p>"
+        "<p><a href=\"/ota\">Zurück zum Firmware-Update</a></p></section>";
+    sendOtaHtml(title, content, statusCode);
+}
+
+void SettingsWebServer::sendOtaHtml(
+    const std::string &title,
+    const std::string &content,
+    int statusCode)
+{
+    const std::string page = otaDocument(title, content);
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.sendHeader("X-Content-Type-Options", "nosniff");
+    server_.sendHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'");
+    server_.send(statusCode, "text/html; charset=utf-8", page.c_str());
+}
+
+void SettingsWebServer::beginOtaSession()
+{
+    otaSessionToken_ = randomHexToken();
+    otaSessionLastSeenMs_ = static_cast<uint32_t>(millis());
+}
+
+void SettingsWebServer::clearOtaSession()
+{
+    std::fill(
+        otaSessionToken_.begin(),
+        otaSessionToken_.end(),
+        '\0');
+    otaSessionToken_.clear();
+    otaSessionLastSeenMs_ = 0;
+}
+
+bool SettingsWebServer::hasValidOtaSession(bool refresh)
+{
+    if (otaSessionToken_.empty())
+        return false;
+    const uint32_t now = static_cast<uint32_t>(millis());
+    if (now - otaSessionLastSeenMs_ >= OTA_SESSION_TIMEOUT_MS)
+    {
+        clearOtaSession();
+        return false;
+    }
+
+    const String cookieHeader = server_.header("Cookie");
+    const std::string supplied = cookieValue(
+        std::string(cookieHeader.c_str(), cookieHeader.length()),
+        "ota_session");
+    if (!constantTimeEquals(supplied, otaSessionToken_))
+        return false;
+    if (refresh)
+        otaSessionLastSeenMs_ = now;
+    return true;
+}
+
+void SettingsWebServer::redirectToOta()
+{
+    if (!otaSessionToken_.empty())
+    {
+        const std::string cookie =
+            "ota_session=" + otaSessionToken_ +
+            "; Path=/; HttpOnly; SameSite=Strict";
+        server_.sendHeader("Set-Cookie", cookie.c_str());
+    }
+    server_.sendHeader("Cache-Control", "no-store");
+    server_.sendHeader("Location", "/ota");
+    server_.send(303, "text/plain", "");
 }
 
 void SettingsWebServer::sendResult(
