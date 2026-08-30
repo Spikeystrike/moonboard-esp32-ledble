@@ -104,15 +104,13 @@ const uint16_t WLED_HTTP_TIMEOUT_MS = 2000;
 
 const char BLE_NAME[] = "MoonBoard";
 
-// WLED ranges use inclusive global physical LED IDs, matching the convention
-// used by cruxwledbridge. This example uses one controller for the complete
-// physical LED chain.
-// The example address below is reserved for documentation and must be changed.
-const WledControllerConfig WLED_CONTROLLERS[] = {
-    {"192.0.2.10", 0, static_cast<uint16_t>(PHYSICAL_LED_COUNT - 1), 0},
-};
-const size_t WLED_CONTROLLER_COUNT =
-    sizeof(WLED_CONTROLLERS) / sizeof(WLED_CONTROLLERS[0]);
+// Firmware defaults used until the web interface saves runtime settings to
+// NVS. The example address is reserved for documentation and must be changed.
+const char DEFAULT_WLED_HOST[] = "192.0.2.10";
+const uint8_t DEFAULT_WLED_SEGMENT_ID = 0;
+
+const uint8_t CALIBRATION_BRIGHTNESS_PERCENT = 20;
+const uint32_t CALIBRATION_LED_TIMEOUT_MS = 5000;
 
 const RgbColor COLOR_RED(255, 0, 0);
 const RgbColor COLOR_GREEN(0, 255, 0);

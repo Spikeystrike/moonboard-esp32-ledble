@@ -3,6 +3,7 @@
 #include <ETH.h>
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -10,21 +11,35 @@
 #include "led_mapping.h"
 #include "moonboard_protocol.h"
 #include "route_timeout.h"
+#include "runtime_settings.h"
+#include "settings_store.h"
+#include "settings_web.h"
 #include "wled_client.h"
 
 BLESerial bleSerial;
 MoonboardProtocolParser protocolParser;
+RuntimeSettings runtimeSettings = {};
+WledControllerConfig runtimeWledController = {
+    runtimeSettings.wledHost,
+    0,
+    0,
+    0,
+};
 WledClient wledClient(
-    WLED_CONTROLLERS,
-    WLED_CONTROLLER_COUNT,
+    &runtimeWledController,
+    1,
     WLED_HTTP_TIMEOUT_MS);
+SettingsStore settingsStore;
+SettingsWebServer settingsWebServer;
 
-RgbColor leds[PHYSICAL_LED_COUNT];
+RgbColor leds[MAX_PHYSICAL_LED_COUNT];
 bool ledAboveHoldEnabled = false;
 bool lastEthernetReady = false;
 bool routeAlwaysOnLedConfigurationValid = false;
 bool routeActive = false;
 uint32_t routeStartedAtMs = 0;
+bool calibrationLedActive = false;
+uint32_t calibrationLedStartedAtMs = 0;
 unsigned long lastEthernetStatusLog = 0;
 
 namespace
@@ -36,7 +51,51 @@ bool ethernetReady()
 
 void clearLocalLeds()
 {
-    std::fill(leds, leds + PHYSICAL_LED_COUNT, RgbColor());
+    std::fill(leds, leds + MAX_PHYSICAL_LED_COUNT, RgbColor());
+}
+
+void loadFirmwareDefaults()
+{
+    std::memset(&runtimeSettings, 0, sizeof(runtimeSettings));
+    std::strncpy(
+        runtimeSettings.wledHost,
+        DEFAULT_WLED_HOST,
+        sizeof(runtimeSettings.wledHost));
+    runtimeSettings.wledHost[sizeof(runtimeSettings.wledHost) - 1] = '\0';
+    runtimeSettings.physicalLedCount = PHYSICAL_LED_COUNT;
+    runtimeSettings.segmentId = DEFAULT_WLED_SEGMENT_ID;
+    runtimeSettings.boulderBrightnessPercent = BOULDER_BRIGHTNESS_PERCENT;
+    runtimeSettings.aboveHoldBrightnessPercent =
+        ABOVE_HOLD_BRIGHTNESS_PERCENT;
+    runtimeSettings.routeTimeoutMinutes = ROUTE_TIMEOUT_MINUTES;
+    runtimeSettings.kickerLedsEnabled = ROUTE_ALWAYS_ON_LEDS_ENABLED;
+    runtimeSettings.kickerLedColor = ROUTE_ALWAYS_ON_LED_COLOR;
+    runtimeSettings.logicalMappingCount = LOGICAL_LED_COUNT;
+    std::copy(
+        LOGICAL_TO_PHYSICAL_LED,
+        LOGICAL_TO_PHYSICAL_LED + LOGICAL_LED_COUNT,
+        runtimeSettings.logicalMapping);
+    runtimeSettings.kickerLedCount = ROUTE_ALWAYS_ON_LED_COUNT;
+    std::copy(
+        ROUTE_ALWAYS_ON_LED_IDS,
+        ROUTE_ALWAYS_ON_LED_IDS + ROUTE_ALWAYS_ON_LED_COUNT,
+        runtimeSettings.kickerLedIds);
+}
+
+void applyRuntimeSettings()
+{
+    runtimeWledController.host = runtimeSettings.wledHost;
+    runtimeWledController.firstGlobalLed = 0;
+    runtimeWledController.lastGlobalLed = static_cast<uint16_t>(
+        runtimeSettings.physicalLedCount - 1);
+    runtimeWledController.segmentId = runtimeSettings.segmentId;
+
+    routeAlwaysOnLedConfigurationValid = validateUnmappedPhysicalLeds(
+        runtimeSettings.kickerLedIds,
+        runtimeSettings.kickerLedCount,
+        runtimeSettings.physicalLedCount,
+        runtimeSettings.logicalMapping,
+        runtimeSettings.logicalMappingCount);
 }
 
 RgbColor scaleColor(const RgbColor &color, uint8_t percent)
@@ -75,9 +134,9 @@ bool setLogicalLed(uint16_t logicalPosition, const RgbColor &color)
     uint16_t physicalPosition = 0;
     if (!logicalToPhysicalLed(
             logicalPosition,
-            LOGICAL_TO_PHYSICAL_LED,
-            LED_MAPPING_COUNT,
-            PHYSICAL_LED_COUNT,
+            runtimeSettings.logicalMapping,
+            runtimeSettings.logicalMappingCount,
+            runtimeSettings.physicalLedCount,
             physicalPosition))
         return false;
 
@@ -90,9 +149,9 @@ bool logicalLedIsBlack(uint16_t logicalPosition)
     uint16_t physicalPosition = 0;
     return !logicalToPhysicalLed(
                logicalPosition,
-               LOGICAL_TO_PHYSICAL_LED,
-               LED_MAPPING_COUNT,
-               PHYSICAL_LED_COUNT,
+               runtimeSettings.logicalMapping,
+               runtimeSettings.logicalMappingCount,
+               runtimeSettings.physicalLedCount,
                physicalPosition) ||
            leds[physicalPosition].isBlack();
 }
@@ -100,19 +159,23 @@ bool logicalLedIsBlack(uint16_t logicalPosition)
 void applyRouteAlwaysOnLeds()
 {
     if (
-        !ROUTE_ALWAYS_ON_LEDS_ENABLED ||
+        !runtimeSettings.kickerLedsEnabled ||
         !routeAlwaysOnLedConfigurationValid)
     {
         return;
     }
 
-    for (size_t index = 0; index < ROUTE_ALWAYS_ON_LED_COUNT; ++index)
-        leds[ROUTE_ALWAYS_ON_LED_IDS[index]] = ROUTE_ALWAYS_ON_LED_COLOR;
+    for (size_t index = 0; index < runtimeSettings.kickerLedCount; ++index)
+    {
+        leds[runtimeSettings.kickerLedIds[index]] =
+            runtimeSettings.kickerLedColor;
+    }
 }
 
 void resetLights()
 {
     routeActive = false;
+    calibrationLedActive = false;
     clearLocalLeds();
     if (ethernetReady())
         wledClient.reset();
@@ -124,7 +187,7 @@ void maintainRouteTimeout()
 {
     if (!routeTimeoutExpired(
             routeActive,
-            ROUTE_TIMEOUT_MINUTES,
+            runtimeSettings.routeTimeoutMinutes,
             routeStartedAtMs,
             static_cast<uint32_t>(millis())))
     {
@@ -133,8 +196,75 @@ void maintainRouteTimeout()
 
     Serial.printf(
         "[ROUTE] Timeout after %u minutes; switching all LEDs off\n",
-        ROUTE_TIMEOUT_MINUTES);
+        runtimeSettings.routeTimeoutMinutes);
     resetLights();
+}
+
+void maintainCalibrationLedTimeout()
+{
+    if (
+        !calibrationLedActive ||
+        static_cast<uint32_t>(millis()) - calibrationLedStartedAtMs <
+            CALIBRATION_LED_TIMEOUT_MS)
+    {
+        return;
+    }
+
+    Serial.println("[CALIBRATION] Test LED timeout; switching all LEDs off");
+    resetLights();
+}
+
+bool saveAndApplyRuntimeSettings(
+    const RuntimeSettings &candidate,
+    std::string &error)
+{
+    if (!validateRuntimeSettings(candidate, error))
+        return false;
+    if (!settingsStore.save(candidate, error))
+        return false;
+
+    if (ethernetReady())
+        wledClient.reset();
+    runtimeSettings = candidate;
+    applyRuntimeSettings();
+    if (ethernetReady())
+        wledClient.reset();
+    routeActive = false;
+    calibrationLedActive = false;
+    clearLocalLeds();
+    Serial.println("[SETTINGS] Runtime settings saved to NVS");
+    return true;
+}
+
+bool showCalibrationLed(uint16_t physicalLed, std::string &error)
+{
+    if (physicalLed >= runtimeSettings.physicalLedCount)
+    {
+        error = "Physical LED ID is outside the configured WLED range";
+        return false;
+    }
+    if (!ethernetReady())
+    {
+        error = "Ethernet is not ready";
+        return false;
+    }
+
+    routeActive = false;
+    clearLocalLeds();
+    leds[physicalLed] = COLOR_WHITE;
+    if (!wledClient.render(
+            leds,
+            runtimeSettings.physicalLedCount,
+            CALIBRATION_BRIGHTNESS_PERCENT))
+    {
+        error = "WLED did not accept the calibration frame";
+        return false;
+    }
+    calibrationLedActive = true;
+    calibrationLedStartedAtMs = static_cast<uint32_t>(millis());
+    Serial.printf("[CALIBRATION] Testing physical WLED ID %u\n", physicalLed);
+    error.clear();
+    return true;
 }
 
 void processConfiguration(const std::string &message)
@@ -161,6 +291,7 @@ void processConfiguration(const std::string &message)
 void processProblem(const std::string &message)
 {
     Serial.printf("[BLE] Problem: %s\n", message.c_str());
+    calibrationLedActive = false;
     clearLocalLeds();
 
     std::vector<MoonboardHold> holds;
@@ -198,7 +329,7 @@ void processProblem(const std::string &message)
     {
         const RgbColor aboveColor = scaleColor(
             COLOR_WHITE,
-            ABOVE_HOLD_BRIGHTNESS_PERCENT);
+            runtimeSettings.aboveHoldBrightnessPercent);
         for (const MoonboardHold &hold : validHolds)
         {
             const int above = aboveHoldPosition(hold.position, BOARD_ROWS);
@@ -231,8 +362,8 @@ void processProblem(const std::string &message)
     {
         wledClient.render(
             leds,
-            PHYSICAL_LED_COUNT,
-            BOULDER_BRIGHTNESS_PERCENT);
+            runtimeSettings.physicalLedCount,
+            runtimeSettings.boulderBrightnessPercent);
     }
     else
     {
@@ -285,8 +416,8 @@ void checkWledAtBoot()
             setLogicalLed(position, color);
         wledClient.render(
             leds,
-            PHYSICAL_LED_COUNT,
-            BOULDER_BRIGHTNESS_PERCENT);
+            runtimeSettings.physicalLedCount,
+            runtimeSettings.boulderBrightnessPercent);
         delay(WLED_CHECK_COLOR_DELAY_MS);
     }
     resetLights();
@@ -300,10 +431,15 @@ void maintainEthernet()
         Serial.printf(
             "[ETH] Connected: %s\n",
             ETH.localIP().toString().c_str());
+        Serial.printf(
+            "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
         wledClient.render(
             leds,
-            PHYSICAL_LED_COUNT,
-            BOULDER_BRIGHTNESS_PERCENT);
+            runtimeSettings.physicalLedCount,
+            calibrationLedActive
+                ? CALIBRATION_BRIGHTNESS_PERCENT
+                : runtimeSettings.boulderBrightnessPercent);
     }
     else if (!ready && lastEthernetReady)
     {
@@ -328,26 +464,28 @@ void setup()
         "[SETUP] MoonBoard %s on Olimex ESP32-POE-ISO\n",
         BOARD_NAME);
 
+    loadFirmwareDefaults();
+    std::string settingsMessage;
+    if (settingsStore.load(runtimeSettings, settingsMessage))
+        Serial.println("[SETTINGS] Loaded runtime settings from NVS");
+    else
+        Serial.printf("[SETTINGS] %s\n", settingsMessage.c_str());
+    applyRuntimeSettings();
+
     if (!wledClient.validateConfiguration())
         Serial.println("[SETUP] WLED configuration contains errors");
 
     if (!validateLedMapping(
-            LOGICAL_TO_PHYSICAL_LED,
-            LED_MAPPING_COUNT,
-            PHYSICAL_LED_COUNT))
+            runtimeSettings.logicalMapping,
+            runtimeSettings.logicalMappingCount,
+            runtimeSettings.physicalLedCount))
     {
         Serial.println(
             "[SETUP] LED mapping contains duplicates or invalid WLED IDs");
     }
 
-    routeAlwaysOnLedConfigurationValid = validateUnmappedPhysicalLeds(
-        ROUTE_ALWAYS_ON_LED_IDS,
-        ROUTE_ALWAYS_ON_LED_COUNT,
-        PHYSICAL_LED_COUNT,
-        LOGICAL_TO_PHYSICAL_LED,
-        LED_MAPPING_COUNT);
     if (
-        ROUTE_ALWAYS_ON_LEDS_ENABLED &&
+        runtimeSettings.kickerLedsEnabled &&
         !routeAlwaysOnLedConfigurationValid)
     {
         Serial.println(
@@ -360,6 +498,20 @@ void setup()
         Serial.println("[BLE] Initialization failed");
 
     lastEthernetReady = initializeEthernet();
+    settingsWebServer.begin(
+        &runtimeSettings,
+        BOARD_NAME,
+        BOARD_ROWS,
+        saveAndApplyRuntimeSettings,
+        showCalibrationLed,
+        resetLights);
+    Serial.println("[WEB] Settings and calibration server listening on port 80");
+    if (ethernetReady())
+    {
+        Serial.printf(
+            "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
+    }
     checkWledAtBoot();
     clearLocalLeds();
     Serial.println("[SETUP] Waiting for the MoonBoard app");
@@ -367,6 +519,8 @@ void setup()
 
 void loop()
 {
+    settingsWebServer.handleClient();
+    maintainCalibrationLedTimeout();
     maintainRouteTimeout();
     maintainEthernet();
 

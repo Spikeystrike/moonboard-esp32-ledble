@@ -4,7 +4,7 @@ This fork runs on an
 [Olimex ESP32-POE-ISO](https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/open-source-hardware).
 It keeps the MoonBoard-compatible BLE interface from the original project, but
 does not drive a local LED data pin. Instead, it sends the selected holds over
-wired Ethernet to one or more WLED controllers through WLED's JSON API.
+wired Ethernet to one WLED controller through WLED's JSON API.
 
 ```text
 MoonBoard app -- BLE --> Olimex ESP32-POE-ISO -- Ethernet/HTTP --> WLED --> LEDs
@@ -16,8 +16,7 @@ each route update sends a complete segment frame to `/json/state`. The frame
 first clears the controller's entire physical LED range to black, then sets
 only route and optional kicker pixels as local LED IDs and hexadecimal colors.
 This avoids switching an active controller off between routes while ensuring
-that every unrelated LED remains dark. Multiple controllers may own
-non-overlapping inclusive ranges of global physical LED IDs.
+that every unrelated LED remains dark.
 
 ## Supported behavior
 
@@ -35,12 +34,15 @@ non-overlapping inclusive ranges of global physical LED IDs.
   off together. A value of `0` keeps routes on indefinitely.
 - DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
   BLE remains active and the most recent route is rendered after reconnection.
-- Multiple WLED controllers with the same global-to-local LED range model as
-  `cruxwledbridge`.
+- A browser-based setup and calibration page served directly by the Olimex.
+- Persistent WLED, brightness, timeout, kicker, and mapping settings stored in
+  the ESP32's non-volatile storage (NVS).
 
 ## Configuration
 
-Edit [`src/config.h`](src/config.h) before flashing.
+Only the MoonBoard layout must be selected in
+[`src/config.h`](src/config.h) before flashing. All installation-specific
+values can then be changed without rebuilding the firmware.
 
 ### Board layout
 
@@ -51,12 +53,52 @@ Select exactly one layout:
 #define MOONBOARD_MINI
 ```
 
+Switching between Mini and Standard still requires a rebuild because the BLE
+protocol's logical LED count is compiled for the selected board. Saved settings
+for the other layout are ignored automatically.
+
+### Web setup and persistent settings
+
+After flashing, connect Ethernet/PoE and read the DHCP address from the serial
+monitor or the router. Open `http://<olimex-ip>/` in a browser. The page allows
+these settings to be changed and saved while the firmware is running:
+
+- WLED hostname or IPv4 address, total physical LED count, and segment ID
+- route and above-hold brightness
+- automatic route timeout
+- optional kicker LED enable switch, color, and physical IDs
+- the complete logical-to-physical MoonBoard LED mapping
+
+The settings are written to NVS and survive resets, power loss, and normal
+firmware updates. Values in `config.h` are firmware defaults: they are used on
+the first start, when saved data is incomplete, or when the selected board
+layout changes. Merely editing `config.h` and reflashing does not overwrite an
+existing compatible NVS configuration.
+
+The page has no login. It should only be reachable from a trusted local
+network.
+
+### Calibration mode
+
+The same page contains an LED calibration assistant. Select a logical
+MoonBoard position, enter a physical WLED ID, and use **LED testen**. The
+selected physical LED lights white for five seconds and every other LED is
+cleared. **Zuordnen und speichern** validates the assignment and stores it in
+NVS. Previous/next buttons and the displayed MoonBoard coordinate make it
+possible to walk through the board in order.
+
+For bulk changes, the full comma-separated mapping can be exported, edited,
+validated, and imported. Physical IDs must be unique, inside the configured
+WLED range, and distinct from kicker LED IDs. **Alle LEDs aus** immediately
+switches off the entire configured WLED controller.
+
 ### Physical LED mapping
 
-`LOGICAL_TO_PHYSICAL_LED` maps every logical MoonBoard position to an arbitrary
-physical WLED LED ID. The array index is the MoonBoard position and its value is
-the WLED ID. This supports unrelated LEDs before the MoonBoard, gaps in the LED
-chain, and a physical order that differs completely from the standard layout:
+`LOGICAL_TO_PHYSICAL_LED` defines the initial mapping. After the first save,
+the NVS mapping edited on the web page takes precedence. The array index is the
+MoonBoard position and its value is the WLED ID. This supports unrelated LEDs
+before the MoonBoard, gaps in the LED chain, and a physical order that differs
+completely from the standard layout:
 
 ```cpp
 constexpr uint16_t LOGICAL_TO_PHYSICAL_LED[] = {
@@ -68,10 +110,11 @@ constexpr uint16_t LOGICAL_TO_PHYSICAL_LED[] = {
 };
 ```
 
-The checked-in one-controller example reserves WLED IDs `0-9` before the
+The checked-in example reserves WLED IDs `0-9` before the
 MoonBoard, skips one unrelated LED after every MoonBoard column, and leaves a
-few IDs after the board. Set `PHYSICAL_LED_COUNT` to the total number of LEDs
-configured in WLED, including all LEDs that are not used by the MoonBoard.
+few IDs after the board. `PHYSICAL_LED_COUNT` is the initial total number of
+LEDs configured in WLED, including all LEDs that are not used by the MoonBoard.
+It can be changed later on the web page.
 
 Every mapped ID must be smaller than `PHYSICAL_LED_COUNT` and may occur only
 once. The firmware validates these rules at startup. LEDs that do not appear in
@@ -79,9 +122,9 @@ the mapping remain unused by MoonBoard routes.
 
 ### LEDs that are always on with a route
 
-`ROUTE_ALWAYS_ON_LED_IDS` contains physical WLED IDs that are not assigned to
-MoonBoard holds. They switch on whenever a valid route is displayed and switch
-off with the route reset command:
+`ROUTE_ALWAYS_ON_LED_IDS` is the initial list of physical WLED IDs that are not
+assigned to MoonBoard holds. They switch on whenever a valid route is displayed
+and switch off with the route reset command:
 
 ```cpp
 const bool ROUTE_ALWAYS_ON_LEDS_ENABLED = true;
@@ -89,14 +132,14 @@ constexpr uint16_t ROUTE_ALWAYS_ON_LED_IDS[] = {0, 3, 6, 9};
 const RgbColor ROUTE_ALWAYS_ON_LED_COLOR(255, 255, 255);
 ```
 
-Set `ROUTE_ALWAYS_ON_LEDS_ENABLED` to `false` to disable the list. The color is
-scaled with `BOULDER_BRIGHTNESS_PERCENT`. Each ID must be unique, smaller than
-`PHYSICAL_LED_COUNT`, and absent from `LOGICAL_TO_PHYSICAL_LED`; invalid lists
-are reported on the serial console and are not applied.
+The list, enable switch, and color are editable on the web page. The color is
+scaled with the route brightness. Each ID must be unique, inside the physical
+WLED range, and absent from the MoonBoard mapping; invalid values are rejected.
 
 ### Automatic route timeout
 
-`ROUTE_TIMEOUT_MINUTES` starts counting whenever a valid route is selected.
+`ROUTE_TIMEOUT_MINUTES` is the firmware default. The active value can be edited
+on the web page and starts counting whenever a valid route is selected.
 Selecting another route restarts the timer. When it expires, every LED on the
 configured WLED controller is switched off, including above-hold and kicker
 LEDs:
@@ -109,46 +152,28 @@ Set the value to `0` to leave the selected route on indefinitely. The timeout
 also continues while Ethernet is temporarily unavailable; an expired route is
 therefore not restored after reconnection.
 
-### WLED controllers
+### WLED target
 
-Replace the documentation address `192.0.2.10`. Each range is inclusive and
-uses global physical LED IDs. The last number is the WLED segment ID:
+Replace the documentation address `192.0.2.10` on the web page. Plain hostnames
+and IPv4 addresses are accepted; WLED must be reachable by unencrypted HTTP
+from the Olimex Ethernet network. The configured segment is resized to the
+complete physical LED range on every route update. A full frame first clears
+all physical LEDs and then sets only route and optional kicker LEDs.
 
-```cpp
-const WledControllerConfig WLED_CONTROLLERS[] = {
-    {"192.168.1.50", 0, 299, 0},
-};
-```
-
-If the installation is later split across two controllers, continue the global
-numbering and do not overlap ranges:
-
-```cpp
-const WledControllerConfig WLED_CONTROLLERS[] = {
-    {"192.168.1.50", 0, 149, 0},
-    {"192.168.1.51", 150, 299, 0},
-};
-```
-
-The firmware subtracts each controller's range start before sending local WLED
-pixel IDs. The configured WLED segment is resized to the controller's complete
-local range on each route update so that all LEDs outside the MoonBoard mapping
-are cleared as well. Plain hostnames and IPv4 addresses are accepted; WLED must
-be reachable by unencrypted HTTP from the Olimex Ethernet network.
-
-Brightness, request timeout, boot test, and BLE name are configured in the
-same file. The boot test sends only three batched WLED frames (red, green, and
-blue), instead of one HTTP request per LED.
+Request timeout, boot test, calibration brightness, and BLE name remain
+firmware defaults in `config.h`. The boot test sends three batched WLED frames
+(red, green, and blue), instead of one HTTP request per LED.
 
 ## Build and flash
 
 1. Install Visual Studio Code and PlatformIO.
 2. Open this repository.
-3. Configure `src/config.h`.
+3. Select Mini or Standard in `src/config.h`.
 4. Connect the Olimex board by USB for flashing.
 5. Build and upload the default `olimex-esp32-poe-iso` environment.
 6. Connect Ethernet/PoE and open the serial monitor at 115200 baud.
-7. Connect the MoonBoard app to the BLE device named `MoonBoard`.
+7. Open `http://<olimex-ip>/`, configure WLED, and calibrate the mapping.
+8. Connect the MoonBoard app to the BLE device named `MoonBoard`.
 
 Command-line equivalents:
 
@@ -167,9 +192,9 @@ of tracking a moving branch.
 ## Tests
 
 The native tests cover BLE message framing, problem parsing, snake-layout
-coordinates, above-hold mapping, explicit and invalid LED mappings, route
-timeout behavior including `millis()` wraparound, global-to-local WLED IDs,
-and brightness scaling:
+coordinates, above-hold mapping, explicit and invalid LED mappings, runtime
+settings and CSV parsing, route timeout behavior including `millis()`
+wraparound, WLED pixel IDs, and brightness scaling:
 
 ```sh
 pio test -e native

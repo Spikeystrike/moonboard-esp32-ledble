@@ -1,5 +1,6 @@
 #include <unity.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -7,10 +8,34 @@
 #include "led_mapping.h"
 #include "moonboard_protocol.h"
 #include "route_timeout.h"
+#include "runtime_settings.h"
 #include "wled_payload.h"
 
 void setUp() {}
 void tearDown() {}
+
+RuntimeSettings validRuntimeSettings()
+{
+    RuntimeSettings settings = {};
+    std::strcpy(settings.wledHost, "192.0.2.10");
+    settings.physicalLedCount = 20;
+    settings.segmentId = 0;
+    settings.boulderBrightnessPercent = 80;
+    settings.aboveHoldBrightnessPercent = 10;
+    settings.routeTimeoutMinutes = 15;
+    settings.kickerLedsEnabled = true;
+    settings.kickerLedColor = RgbColor(255, 255, 255);
+    settings.logicalMappingCount = 4;
+    settings.logicalMapping[0] = 10;
+    settings.logicalMapping[1] = 11;
+    settings.logicalMapping[2] = 15;
+    settings.logicalMapping[3] = 14;
+    settings.kickerLedCount = 3;
+    settings.kickerLedIds[0] = 0;
+    settings.kickerLedIds[1] = 3;
+    settings.kickerLedIds[2] = 9;
+    return settings;
+}
 
 void test_parser_emits_configuration_and_problem()
 {
@@ -201,6 +226,50 @@ void test_route_timeout_handles_millis_wraparound()
     TEST_ASSERT_TRUE(routeTimeoutExpired(true, 1, startedAt, 30000u));
 }
 
+void test_runtime_settings_validation_accepts_valid_configuration()
+{
+    const RuntimeSettings settings = validRuntimeSettings();
+    std::string error;
+
+    TEST_ASSERT_TRUE(validateRuntimeSettings(settings, error));
+    TEST_ASSERT_TRUE(error.empty());
+}
+
+void test_runtime_settings_validation_rejects_invalid_led_assignments()
+{
+    std::string error;
+    RuntimeSettings settings = validRuntimeSettings();
+    settings.logicalMapping[2] = settings.logicalMapping[0];
+    TEST_ASSERT_FALSE(validateRuntimeSettings(settings, error));
+
+    settings = validRuntimeSettings();
+    settings.kickerLedIds[1] = settings.logicalMapping[2];
+    TEST_ASSERT_FALSE(validateRuntimeSettings(settings, error));
+
+    settings = validRuntimeSettings();
+    settings.logicalMapping[3] = settings.physicalLedCount;
+    TEST_ASSERT_FALSE(validateRuntimeSettings(settings, error));
+}
+
+void test_led_id_list_parser_handles_csv_and_rejects_bad_input()
+{
+    uint16_t values[4] = {};
+    uint16_t count = 0;
+    std::string error;
+
+    TEST_ASSERT_TRUE(parseLedIdList("10, 11,\n15", values, 4, count, error));
+    TEST_ASSERT_EQUAL_UINT16(3, count);
+    TEST_ASSERT_EQUAL_UINT16(10, values[0]);
+    TEST_ASSERT_EQUAL_UINT16(11, values[1]);
+    TEST_ASSERT_EQUAL_UINT16(15, values[2]);
+
+    TEST_ASSERT_TRUE(parseLedIdList("", values, 4, count, error));
+    TEST_ASSERT_EQUAL_UINT16(0, count);
+    TEST_ASSERT_FALSE(parseLedIdList("10,   ", values, 4, count, error));
+    TEST_ASSERT_FALSE(parseLedIdList("10;11", values, 4, count, error));
+    TEST_ASSERT_FALSE(parseLedIdList("1,2,3,4,5", values, 4, count, error));
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
@@ -217,5 +286,8 @@ int main(int argc, char **argv)
     RUN_TEST(test_checked_in_always_on_led_list_is_valid);
     RUN_TEST(test_route_timeout_can_be_disabled_and_restarts_per_route);
     RUN_TEST(test_route_timeout_handles_millis_wraparound);
+    RUN_TEST(test_runtime_settings_validation_accepts_valid_configuration);
+    RUN_TEST(test_runtime_settings_validation_rejects_invalid_led_assignments);
+    RUN_TEST(test_led_id_list_parser_handles_csv_and_rejects_bad_input);
     return UNITY_END();
 }
