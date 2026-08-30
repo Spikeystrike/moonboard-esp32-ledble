@@ -94,9 +94,19 @@ automatic scrolling.
 
 All web pages use English by default. The flag button in the upper-right corner
 switches between English and German, and the choice is retained in the
-browser's local storage. The footer shows firmware version `1.0.0` and the
+browser's local storage. The footer shows firmware version `1.1.0` and the
 compile timestamp. The same information is available from `/api/config` and in
 the startup log, so the running version can be checked after an OTA restart.
+
+### Configuration backup and restore
+
+The settings page can download the complete runtime configuration as a JSON
+file. It includes the WLED target, LED count and segment, brightness values,
+route timeout, kicker settings, and the complete logical-to-physical mapping.
+Restoring a file checks its format and board layout, parses every list, and
+validates the complete candidate before one atomic NVS save replaces the
+current configuration. A malformed or incompatible backup leaves the active
+settings unchanged. The OTA password is deliberately excluded from backups.
 
 The firmware retains only the most recent 80 messages in a fixed-size RAM ring
 buffer. Logs are deliberately not written to flash and are lost when the

@@ -34,6 +34,7 @@ private:
     void handleConfig();
     void handleLogs();
     void handleSettingsUpdate();
+    void handleConfigurationRestore();
     void handleMappingUpdate();
     void handleMappingListUpdate();
     void handleTestLed();
@@ -77,6 +78,9 @@ private:
         const char *name,
         uint32_t maximum,
         uint32_t &value,
+        std::string &error);
+    bool parseSettingsArgs(
+        RuntimeSettings &candidate,
         std::string &error);
 
     WebServer server_;

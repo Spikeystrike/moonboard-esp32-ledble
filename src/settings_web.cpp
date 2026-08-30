@@ -52,6 +52,11 @@ textarea{min-height:105px;font-family:monospace;font-weight:400}.hint{color:#536
 <div class="actions"><button type="button" class="secondary" id="previous"><span data-en="Previous" data-de="Zurück">Previous</span></button><button type="button" class="secondary" id="next"><span data-en="Next" data-de="Weiter">Next</span></button><button type="button" id="testLed"><span data-en="Test LED" data-de="LED testen">Test LED</span></button><button type="button" id="assign"><span data-en="Assign and save" data-de="Zuordnen und speichern">Assign and save</span></button></div>
 <h3><span data-en="Import/export mapping" data-de="Mapping importieren/exportieren">Import/export mapping</span></h3><textarea id="mapping"></textarea>
 <div class="actions"><button type="button" class="secondary" id="export"><span data-en="Show current mapping" data-de="Aktuelles Mapping anzeigen">Show current mapping</span></button><button type="button" id="import"><span data-en="Validate and save mapping" data-de="Mapping prüfen und speichern">Validate and save mapping</span></button></div></section>
+<section><h2><span data-en="Configuration backup" data-de="Konfiguration sichern">Configuration backup</span></h2>
+<p class="hint"><span data-en="Download all WLED, brightness, timeout, kicker and LED mapping settings as a JSON file. Restoring validates the complete file before replacing the current configuration. The OTA password is deliberately not included." data-de="Lade alle WLED-, Helligkeits-, Timeout-, Kicker- und LED-Mapping-Einstellungen als JSON-Datei herunter. Beim Wiederherstellen wird die vollständige Datei geprüft, bevor sie die aktuelle Konfiguration ersetzt. Das OTA-Passwort ist absichtlich nicht enthalten.">Download all WLED, brightness, timeout, kicker and LED mapping settings as a JSON file. Restoring validates the complete file before replacing the current configuration. The OTA password is deliberately not included.</span></p>
+<div class="actions"><button type="button" class="secondary" id="backup"><span data-en="Download backup" data-de="Sicherung herunterladen">Download backup</span></button></div>
+<div class="grid" style="margin-top:14px"><label><span data-en="JSON backup file" data-de="JSON-Sicherungsdatei">JSON backup file</span><input id="backupFile" type="file" accept=".json,application/json"></label></div>
+<div class="actions"><button type="button" id="restore"><span data-en="Validate and restore" data-de="Prüfen und wiederherstellen">Validate and restore</span></button></div></section>
 <div id="status" class="status"></div><p class="hint"><span data-en="Settings and the live log have no login. Firmware updates are protected by a separate password. Only expose this interface on a trusted local network." data-de="Einstellungen und Live-Log besitzen keine Anmeldung. Firmware-Updates sind separat passwortgeschützt. Die Oberfläche darf nur in einem vertrauenswürdigen lokalen Netzwerk erreichbar sein.">Settings and the live log have no login. Firmware updates are protected by a separate password. Only expose this interface on a trusted local network.</span></p>
 <footer><span data-en="Firmware" data-de="Firmware">Firmware</span> <span id="firmwareVersion">—</span> · <span data-en="built" data-de="gebaut">built</span> <span id="firmwareBuild">—</span></footer>
 <script>
@@ -75,6 +80,8 @@ $('assign').onclick=async()=>{try{const logical=Number($('logical').value),physi
 $('export').onclick=()=>{$('mapping').value=cfg.mapping.join(',');status('Mapping copied to the text field.','Mapping im Textfeld bereitgestellt.')};
 $('import').onclick=async()=>{try{await post('/api/mapping-list',{mapping:$('mapping').value});await load();status('Complete mapping saved permanently.','Vollständiges Mapping dauerhaft gespeichert.')}catch(e){status(e.message,e.message,true)}};
 $('off').onclick=async()=>{try{await post('/api/off',{});status('All LEDs switched off.','Alle LEDs ausgeschaltet.')}catch(e){status(e.message,e.message,true)}};
+$('backup').onclick=()=>{const backup={format:'moonboard-bridge-config',schemaVersion:1,firmwareVersion:cfg.firmwareVersion,board:cfg.board,logicalLedCount:cfg.logicalLedCount,settings:{wledHost:cfg.wledHost,physicalLedCount:cfg.physicalLedCount,segmentId:cfg.segmentId,boulderBrightnessPercent:cfg.boulderBrightnessPercent,aboveHoldBrightnessPercent:cfg.aboveHoldBrightnessPercent,routeTimeoutMinutes:cfg.routeTimeoutMinutes,kickerLedsEnabled:cfg.kickerLedsEnabled,kickerColor:colorHex(cfg.kickerColor),kickerIds:cfg.kickerIds,mapping:cfg.mapping}};const blob=new Blob([JSON.stringify(backup,null,2)+'\n'],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a'),date=new Date().toISOString().slice(0,10),board=cfg.board.toLowerCase().replace(/[^a-z0-9_-]+/g,'-');a.href=url;a.download=`moonboard-${board}-config-${date}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),0);status('Configuration backup downloaded.','Konfigurationssicherung heruntergeladen.')};
+$('restore').onclick=async()=>{try{const file=$('backupFile').files[0];if(!file)throw new Error(tr('Select a JSON backup file first.','Wähle zuerst eine JSON-Sicherungsdatei aus.'));const backup=JSON.parse(await file.text()),s=backup&&backup.settings;if(backup.format!=='moonboard-bridge-config'||backup.schemaVersion!==1||!s||!Array.isArray(s.kickerIds)||!Array.isArray(s.mapping))throw new Error(tr('This is not a supported MoonBoard configuration backup.','Dies ist keine unterstützte MoonBoard-Konfigurationssicherung.'));if(!confirm(tr('Replace the current configuration with this backup? All LEDs will be switched off.','Aktuelle Konfiguration durch diese Sicherung ersetzen? Alle LEDs werden ausgeschaltet.')))return;await post('/api/restore',{backupSchema:backup.schemaVersion,board:backup.board,logicalCount:backup.logicalLedCount,host:s.wledHost,physical:s.physicalLedCount,segment:s.segmentId,boulder:s.boulderBrightnessPercent,above:s.aboveHoldBrightnessPercent,timeout:s.routeTimeoutMinutes,kickerEnabled:s.kickerLedsEnabled?'1':'0',kickerColor:s.kickerColor,kickerIds:s.kickerIds.join(','),mapping:s.mapping.join(',')});await load();status('Configuration restored and saved permanently.','Konfiguration wiederhergestellt und dauerhaft gespeichert.')}catch(e){status(e.message,e.message,true)}};
 load().catch(e=>status(e.message,e.message,true));
 </script></body></html>
 )HTML";
@@ -363,6 +370,9 @@ void SettingsWebServer::begin(
     server_.on("/api/config", HTTP_GET, [this]() { handleConfig(); });
     server_.on("/api/logs", HTTP_GET, [this]() { handleLogs(); });
     server_.on("/api/settings", HTTP_POST, [this]() { handleSettingsUpdate(); });
+    server_.on("/api/restore", HTTP_POST, [this]() {
+        handleConfigurationRestore();
+    });
     server_.on("/api/mapping", HTTP_POST, [this]() { handleMappingUpdate(); });
     server_.on("/api/mapping-list", HTTP_POST, [this]() {
         handleMappingListUpdate();
@@ -510,40 +520,40 @@ bool SettingsWebServer::parseUnsignedArg(
     return true;
 }
 
-void SettingsWebServer::handleSettingsUpdate()
+bool SettingsWebServer::parseSettingsArgs(
+    RuntimeSettings &candidate,
+    std::string &error)
 {
-    RuntimeSettings candidate = *settings_;
-    std::string error;
     uint32_t value = 0;
 
     if (!server_.hasArg("host") || server_.arg("host").length() == 0)
     {
-        sendResult(false, "WLED host is required");
-        return;
+        error = "WLED host is required";
+        return false;
     }
     const String host = server_.arg("host");
     if (host.length() >= sizeof(candidate.wledHost))
     {
-        sendResult(false, "WLED host is too long");
-        return;
+        error = "WLED host is too long";
+        return false;
     }
     std::strncpy(candidate.wledHost, host.c_str(), sizeof(candidate.wledHost));
     candidate.wledHost[sizeof(candidate.wledHost) - 1] = '\0';
 
     if (!parseUnsignedArg("physical", MAX_PHYSICAL_LED_COUNT, value, error))
-        return sendResult(false, error);
+        return false;
     candidate.physicalLedCount = static_cast<uint16_t>(value);
     if (!parseUnsignedArg("segment", 255, value, error))
-        return sendResult(false, error);
+        return false;
     candidate.segmentId = static_cast<uint8_t>(value);
     if (!parseUnsignedArg("boulder", 100, value, error))
-        return sendResult(false, error);
+        return false;
     candidate.boulderBrightnessPercent = static_cast<uint8_t>(value);
     if (!parseUnsignedArg("above", 100, value, error))
-        return sendResult(false, error);
+        return false;
     candidate.aboveHoldBrightnessPercent = static_cast<uint8_t>(value);
     if (!parseUnsignedArg("timeout", 65535, value, error))
-        return sendResult(false, error);
+        return false;
     candidate.routeTimeoutMinutes = static_cast<uint16_t>(value);
 
     candidate.kickerLedsEnabled =
@@ -552,8 +562,8 @@ void SettingsWebServer::handleSettingsUpdate()
     if (!server_.hasArg("kickerColor") ||
         !parseColor(server_.arg("kickerColor"), candidate.kickerLedColor))
     {
-        sendResult(false, "Kicker color must use #RRGGBB format");
-        return;
+        error = "Kicker color must use #RRGGBB format";
+        return false;
     }
     const String kickerIds = server_.hasArg("kickerIds")
         ? server_.arg("kickerIds")
@@ -565,13 +575,89 @@ void SettingsWebServer::handleSettingsUpdate()
             candidate.kickerLedCount,
             error))
     {
-        sendResult(false, error);
+        return false;
+    }
+
+    error.clear();
+    return true;
+}
+
+void SettingsWebServer::handleSettingsUpdate()
+{
+    RuntimeSettings candidate = *settings_;
+    std::string error;
+    if (!parseSettingsArgs(candidate, error))
+        return sendResult(false, error);
+
+    if (!applySettings_(candidate, error))
+        return sendResult(false, error);
+    sendResult(true, "Settings saved");
+}
+
+void SettingsWebServer::handleConfigurationRestore()
+{
+    if (settings_ == nullptr)
+    {
+        sendResult(false, "Settings are not initialized");
+        return;
+    }
+
+    std::string error;
+    uint32_t value = 0;
+    if (!parseUnsignedArg("backupSchema", 1, value, error) || value != 1)
+    {
+        sendResult(false, "Unsupported backup schema");
+        return;
+    }
+    if (!server_.hasArg("board") || server_.arg("board") != boardName_)
+    {
+        sendResult(false, "Backup belongs to a different board layout");
+        return;
+    }
+    if (!parseUnsignedArg(
+            "logicalCount",
+            MAX_LOGICAL_LED_COUNT,
+            value,
+            error) ||
+        value != settings_->logicalMappingCount)
+    {
+        sendResult(
+            false,
+            "Backup has an incompatible MoonBoard position count");
+        return;
+    }
+
+    RuntimeSettings candidate = *settings_;
+    if (!parseSettingsArgs(candidate, error))
+        return sendResult(false, error);
+    if (!server_.hasArg("mapping"))
+    {
+        sendResult(false, "Backup mapping is missing");
+        return;
+    }
+
+    uint16_t mappingCount = 0;
+    if (!parseLedIdList(
+            server_.arg("mapping").c_str(),
+            candidate.logicalMapping,
+            MAX_LOGICAL_LED_COUNT,
+            mappingCount,
+            error))
+    {
+        return sendResult(false, error);
+    }
+    if (mappingCount != candidate.logicalMappingCount)
+    {
+        sendResult(
+            false,
+            "Backup mapping must contain exactly one ID per position");
         return;
     }
 
     if (!applySettings_(candidate, error))
         return sendResult(false, error);
-    sendResult(true, "Settings saved");
+    appLogLine("[SETTINGS] Configuration restored from JSON backup");
+    sendResult(true, "Configuration restored");
 }
 
 void SettingsWebServer::handleMappingUpdate()
