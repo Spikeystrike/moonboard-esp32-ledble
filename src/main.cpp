@@ -1,369 +1,631 @@
-#include <config.h>
+#include <Arduino.h>
+#include <ETH.h>
 
-// variables used inside project
-BLESerial bleSerial;                                               // BLE serial emulation
-String problemMessage = "";                                        // BLE buffer message
-String humanReadableProblemMessage = "";                           // Problem human readable message
-bool problemMessageStarted = false;                                // Start indicator of problem message
-bool problemMessageEnded = false;                                  // End indicator of problem message
-String confMessage = "";                                           // BLE buffer conf message
-bool confMessageStarted = false;                                   // Start indicator of conf message
-bool confMessageEnded = false;                                     // End indicator of conf message
-bool ledAboveHoldEnabled = false;                                  // Enable the LED above the hold if possible
-int bitmapMoonState = 0;                                           // Used to set the Moon Logo
-bool bitmapBleState = false;                                       // Used to set the BLE bitmap
-bool bitmapNeoPixelState = false;                                  // Used to set the Bulb bitmap
-bool bleConnected = false;                                         // Ble connected state
-bool setupState = false;                                           // Setup in progress
-unsigned long previousMillisBle = 0;                               // Last time BLE bitmap was updated
-unsigned long previousMillisMoon = 0;                              // Last time Moon logo was updated
-CRGB leds[ledsCount * NEOPIXEL_LED_OFFSET];                        // Neopixel leds use by FastLED
+#include <algorithm>
+#include <cstring>
+#include <string>
+#include <vector>
 
-// colors definitions
-CRGB red = CRGB(255, 0, 0);
-CRGB green = CRGB(0, 255, 0);
-CRGB blue = CRGB(0, 0, 255);
-CRGB cyan = CRGB(0, 128, 128);
-CRGB magenta = CRGB(128, 0, 128);
-CRGB yellow = CRGB(128, 128, 0);
-CRGB pink = CRGB(120, 50, 85);
-CRGB purple = CRGB(105, 0, 150);
-CRGB black = CRGB(0, 0, 0);
-CRGB white = CRGB(255, 255, 255);
+#include "app_log.h"
+#include "config.h"
+#include "firmware_info.h"
+#include "led_mapping.h"
+#include "moonboard_ble.h"
+#include "moonboard_protocol.h"
+#include "route_timeout.h"
+#include "runtime_settings.h"
+#include "settings_store.h"
+#include "settings_web.h"
+#include "wled_client.h"
 
-/**
- * @brief Return the string coordinates for a position as "X12" where X is the column letter and 12 the row number
- *
- * @param position
- * @return String
- */
-String positionToCoordinates(int position)
+MoonboardBleServer bleSerial;
+MoonboardProtocolParser protocolParser;
+RuntimeSettings runtimeSettings = {};
+WledControllerConfig runtimeWledController = {
+    runtimeSettings.wledHost,
+    0,
+    0,
+    0,
+};
+WledClient wledClient(
+    &runtimeWledController,
+    1,
+    WLED_HTTP_TIMEOUT_MS,
+    WLED_WAKE_DELAY_MS,
+    WLED_RETRY_DELAY_MS);
+SettingsStore settingsStore;
+SettingsWebServer settingsWebServer;
+
+RgbColor leds[MAX_PHYSICAL_LED_COUNT];
+bool ledAboveHoldEnabled = false;
+bool lastEthernetReady = false;
+bool routeAlwaysOnLedConfigurationValid = false;
+bool routeActive = false;
+uint32_t routeStartedAtMs = 0;
+bool calibrationLedActive = false;
+uint32_t calibrationLedStartedAtMs = 0;
+unsigned long lastEthernetStatusLog = 0;
+bool lastBleConnected = false;
+bool bleConnectionStateInitialized = false;
+
+namespace
 {
-    String res = "";
-    int rows = boardRows;
-    char columns[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K'};
-    int column = (position / rows) + 1;
-    int row = 0;
-    res.concat(columns[column - 1]);
-
-    if (column % 2 == 0) // even column
-        row = rows - (position % rows);
-    else if (column % 2 == 1) // odd column
-        row = (position % rows) + 1;
-
-    res.concat(row);
-    return res;
+bool ethernetReady()
+{
+    return ETH.linkUp() && ETH.localIP() != IPAddress(0, 0, 0, 0);
 }
 
-/**
- * @brief Light the LEDs for a given hold
- *
- * @param holdType Hold type (S,P,E)
- * @param holdPosition Position of the mathcing LED
- * @param ledAboveHoldEnabled Enable the LED above the hold if possible
- */
-void neoPixelShowHold(char holdType, int holdPosition)
+void clearLocalLeds()
 {
-    bitmapNeoPixelState = true;
-    Serial.print("[SERIAL] Light hold: ");
-    Serial.print(holdType);
-    Serial.print(", position: ");
-    Serial.print(holdPosition);
+    std::fill(leds, leds + MAX_PHYSICAL_LED_COUNT, RgbColor());
+}
 
-    String colorLabel = "BLACK";
-    CRGB colorRgb = black;
+void loadFirmwareDefaults()
+{
+    std::memset(&runtimeSettings, 0, sizeof(runtimeSettings));
+    std::strncpy(
+        runtimeSettings.wledHost,
+        DEFAULT_WLED_HOST,
+        sizeof(runtimeSettings.wledHost));
+    runtimeSettings.wledHost[sizeof(runtimeSettings.wledHost) - 1] = '\0';
+    runtimeSettings.physicalLedCount = PHYSICAL_LED_COUNT;
+    runtimeSettings.segmentId = DEFAULT_WLED_SEGMENT_ID;
+    runtimeSettings.boulderBrightnessPercent = BOULDER_BRIGHTNESS_PERCENT;
+    runtimeSettings.aboveHoldBrightnessPercent =
+        ABOVE_HOLD_BRIGHTNESS_PERCENT;
+    runtimeSettings.routeTimeoutMinutes = ROUTE_TIMEOUT_MINUTES;
+    runtimeSettings.kickerLedsEnabled = ROUTE_ALWAYS_ON_LEDS_ENABLED;
+    runtimeSettings.kickerLedColor = ROUTE_ALWAYS_ON_LED_COLOR;
+    runtimeSettings.logicalMappingCount = LOGICAL_LED_COUNT;
+    std::copy(
+        LOGICAL_TO_PHYSICAL_LED,
+        LOGICAL_TO_PHYSICAL_LED + LOGICAL_LED_COUNT,
+        runtimeSettings.logicalMapping);
+    runtimeSettings.kickerLedCount = ROUTE_ALWAYS_ON_LED_COUNT;
+    std::copy(
+        ROUTE_ALWAYS_ON_LED_IDS,
+        ROUTE_ALWAYS_ON_LED_IDS + ROUTE_ALWAYS_ON_LED_COUNT,
+        runtimeSettings.kickerLedIds);
+}
 
+void applyRuntimeSettings()
+{
+    runtimeWledController.host = runtimeSettings.wledHost;
+    runtimeWledController.firstGlobalLed = 0;
+    runtimeWledController.lastGlobalLed = static_cast<uint16_t>(
+        runtimeSettings.physicalLedCount - 1);
+    runtimeWledController.segmentId = runtimeSettings.segmentId;
+
+    routeAlwaysOnLedConfigurationValid = validateUnmappedPhysicalLeds(
+        runtimeSettings.kickerLedIds,
+        runtimeSettings.kickerLedCount,
+        runtimeSettings.physicalLedCount,
+        runtimeSettings.logicalMapping,
+        runtimeSettings.logicalMappingCount);
+}
+
+RgbColor scaleColor(const RgbColor &color, uint8_t percent)
+{
+    const uint16_t boundedPercent = std::min<uint16_t>(percent, 100);
+    return RgbColor(
+        (color.red * boundedPercent + 50) / 100,
+        (color.green * boundedPercent + 50) / 100,
+        (color.blue * boundedPercent + 50) / 100);
+}
+
+RgbColor colorForHold(char holdType)
+{
     switch (holdType)
     {
     case 'E':
-        colorLabel = "RED";
-        colorRgb = red;
-        break;
+        return COLOR_RED;
     case 'F':
-        colorLabel = "CYAN";
-        colorRgb = cyan;
-        break;
+        return COLOR_CYAN;
     case 'L':
-        colorLabel = "PURPLE";
-        colorRgb = purple;
-        break;
+        return COLOR_PURPLE;
     case 'M':
-        colorLabel = "PINK";
-        colorRgb = pink;
-        break;
+        return COLOR_PINK;
     case 'P':
-        colorLabel = "BLUE";
-        colorRgb = blue;
-        break;
     case 'R':
-        colorLabel = "BLUE";
-        colorRgb = blue;
-        break;
+        return COLOR_BLUE;
     case 'S':
-        colorLabel = "GREEN";
-        colorRgb = green;
-        break;
+        return COLOR_GREEN;
+    default:
+        return RgbColor();
     }
-    Serial.print(" color: ");
-    Serial.print(colorLabel);
-    Serial.print(", coordinates: ");
-    String coordinates = positionToCoordinates(holdPosition);
-    Serial.print(coordinates);
-    humanReadableProblemMessage.concat(coordinates);
-    humanReadableProblemMessage.concat(' ');
+}
 
-    // Ligth Hold
-    leds[holdPosition * NEOPIXEL_LED_OFFSET] = colorRgb;
+bool setLogicalLed(uint16_t logicalPosition, const RgbColor &color)
+{
+    uint16_t physicalPosition = 0;
+    if (!logicalToPhysicalLed(
+            logicalPosition,
+            runtimeSettings.logicalMapping,
+            runtimeSettings.logicalMappingCount,
+            runtimeSettings.physicalLedCount,
+            physicalPosition))
+        return false;
 
-    // Find the LED position above the hold
+    leds[physicalPosition] = color;
+    return true;
+}
+
+bool logicalLedIsBlack(uint16_t logicalPosition)
+{
+    uint16_t physicalPosition = 0;
+    return !logicalToPhysicalLed(
+               logicalPosition,
+               runtimeSettings.logicalMapping,
+               runtimeSettings.logicalMappingCount,
+               runtimeSettings.physicalLedCount,
+               physicalPosition) ||
+           leds[physicalPosition].isBlack();
+}
+
+void applyRouteAlwaysOnLeds()
+{
+    if (
+        !runtimeSettings.kickerLedsEnabled ||
+        !routeAlwaysOnLedConfigurationValid)
+    {
+        return;
+    }
+
+    for (size_t index = 0; index < runtimeSettings.kickerLedCount; ++index)
+    {
+        leds[runtimeSettings.kickerLedIds[index]] =
+            runtimeSettings.kickerLedColor;
+    }
+}
+
+void resetLights()
+{
+    routeActive = false;
+    calibrationLedActive = false;
+    clearLocalLeds();
+    if (ethernetReady())
+    {
+        if (!wledClient.reset())
+            appLogLine("[WLED] Could not queue the reset frame");
+    }
+    else
+        appLogLine("[WLED] Reset deferred: Ethernet is not ready");
+}
+
+void maintainRouteTimeout()
+{
+    if (!routeTimeoutExpired(
+            routeActive,
+            runtimeSettings.routeTimeoutMinutes,
+            routeStartedAtMs,
+            static_cast<uint32_t>(millis())))
+    {
+        return;
+    }
+
+    appLogPrintf(
+        "[ROUTE] Timeout after %u minutes; switching all LEDs off\n",
+        runtimeSettings.routeTimeoutMinutes);
+    resetLights();
+}
+
+void maintainCalibrationLedTimeout()
+{
+    if (
+        !calibrationLedActive ||
+        static_cast<uint32_t>(millis()) - calibrationLedStartedAtMs <
+            CALIBRATION_LED_TIMEOUT_MS)
+    {
+        return;
+    }
+
+    appLogLine("[CALIBRATION] Test LED timeout; switching all LEDs off");
+    resetLights();
+}
+
+bool saveAndApplyRuntimeSettings(
+    const RuntimeSettings &candidate,
+    std::string &error)
+{
+    if (!validateRuntimeSettings(candidate, error))
+        return false;
+    if (!settingsStore.save(candidate, error))
+        return false;
+
+    if (ethernetReady() && !wledClient.reset())
+        appLogLine("[WLED] Could not queue the old settings reset");
+    runtimeSettings = candidate;
+    applyRuntimeSettings();
+    if (ethernetReady() && !wledClient.reset())
+        appLogLine("[WLED] Could not queue the new settings reset");
+    routeActive = false;
+    calibrationLedActive = false;
+    clearLocalLeds();
+    appLogLine("[SETTINGS] Runtime settings saved to NVS");
+    return true;
+}
+
+bool showCalibrationLed(uint16_t physicalLed, std::string &error)
+{
+    if (physicalLed >= runtimeSettings.physicalLedCount)
+    {
+        error = "Physical LED ID is outside the configured WLED range";
+        return false;
+    }
+    if (!ethernetReady())
+    {
+        error = "Ethernet is not ready";
+        return false;
+    }
+
+    routeActive = false;
+    clearLocalLeds();
+    leds[physicalLed] = COLOR_WHITE;
+    if (!wledClient.render(
+            leds,
+            runtimeSettings.physicalLedCount,
+            CALIBRATION_BRIGHTNESS_PERCENT))
+    {
+        error = "The calibration frame could not be queued for WLED";
+        return false;
+    }
+    calibrationLedActive = true;
+    calibrationLedStartedAtMs = static_cast<uint32_t>(millis());
+    appLogPrintf("[CALIBRATION] Testing physical WLED ID %u\n", physicalLed);
+    error.clear();
+    return true;
+}
+
+void processConfiguration(const std::string &message)
+{
+    appLogPrintf("[BLE] Configuration: %s\n", message.c_str());
+
+    if (message.find("~D") != std::string::npos)
+    {
+        ledAboveHoldEnabled = true;
+        appLogLine("[BLE] Additional light above each hold enabled");
+    }
+    else if (message.find("~M") != std::string::npos)
+    {
+        ledAboveHoldEnabled = false;
+    }
+
+    if (message.find("~Z*") != std::string::npos)
+    {
+        appLogLine("[BLE] Reset lights");
+        resetLights();
+    }
+}
+
+void processProblem(const std::string &message)
+{
+    appLogPrintf("[BLE] Problem: %s\n", message.c_str());
+    calibrationLedActive = false;
+    clearLocalLeds();
+
+    std::vector<MoonboardHold> holds;
+    if (!parseProblem(message, holds))
+    {
+        appLogLine("[BLE] Ignoring malformed problem message");
+        routeActive = false;
+        if (ethernetReady() && !wledClient.reset())
+            appLogLine("[WLED] Could not queue the malformed-route reset");
+        ledAboveHoldEnabled = false;
+        return;
+    }
+
+    std::vector<MoonboardHold> validHolds;
+    std::string coordinates;
+    for (const MoonboardHold &hold : holds)
+    {
+        if (hold.position >= LOGICAL_LED_COUNT)
+        {
+            appLogPrintf(
+                "[BLE] Ignoring out-of-range hold %c%u\n",
+                hold.type,
+                hold.position);
+            continue;
+        }
+
+        setLogicalLed(hold.position, colorForHold(hold.type));
+        validHolds.push_back(hold);
+        if (!coordinates.empty())
+            coordinates += ' ';
+        coordinates += positionToCoordinates(hold.position, BOARD_ROWS);
+    }
+
     if (ledAboveHoldEnabled)
     {
-        int ledAboveHoldPosition = holdPosition;
-        int gapLedAbove = 0;
-        int rows = boardRows;
-        int cell = holdPosition + 1;
-        int column = (cell / rows) + 1;
-
-        if ((cell % rows == 0) || ((cell - 1) % rows == 0)) // start or end of the column
-            gapLedAbove = 0;
-        else if (column % 2 == 0) // even column
-            gapLedAbove = -1;
-        else if (column % 2 == 1) // odd column
-            gapLedAbove = 1;
-        else
-            gapLedAbove = 9;
-
-        if (gapLedAbove != 0 && gapLedAbove != 9)
+        const RgbColor aboveColor = scaleColor(
+            COLOR_WHITE,
+            runtimeSettings.aboveHoldBrightnessPercent);
+        for (const MoonboardHold &hold : validHolds)
         {
-            ledAboveHoldPosition = holdPosition + gapLedAbove;
-            Serial.print(", led position above: ");
-            Serial.print(ledAboveHoldPosition);
-
-            // Light LED above hold
-            leds[ledAboveHoldPosition * NEOPIXEL_LED_OFFSET] = white;
-            leds[ledAboveHoldPosition * NEOPIXEL_LED_OFFSET].subtractFromRGB((1 - NEOPIXEL_BRIGHTNESS_ABOVE_HOLD) * 255);
+            const int above = aboveHoldPosition(hold.position, BOARD_ROWS);
+            if (
+                above >= 0 &&
+                above < LOGICAL_LED_COUNT &&
+                logicalLedIsBlack(above))
+            {
+                setLogicalLed(above, aboveColor);
+            }
         }
     }
 
-    Serial.println();
-    FastLED.show();
-}
-
-/**
- * @brief Turn off all LEDs
- *
- */
-void neoPixelReset()
-{
-    FastLED.clear();
-    FastLED.show();
-    bitmapNeoPixelState = false;
-}
-
-/**
- * @brief Process the configuration message
- *
- */
-void processConfMessage()
-{
-    Serial.println("[SERIAL] -----------------");
-    Serial.print("[SERIAL] Configuration message: ");
-    Serial.println(confMessage);
-
-    if (confMessage.indexOf("~D") != -1)
+    if (!validHolds.empty())
     {
-        Serial.println("[SERIAL] Display an additional led above each hold");
-        ledAboveHoldEnabled = true;
+        applyRouteAlwaysOnLeds();
+        routeActive = true;
+        routeStartedAtMs = static_cast<uint32_t>(millis());
+    }
+    else
+    {
+        routeActive = false;
     }
 
-    if (confMessage.indexOf("~Z*") != -1)
+    appLogPrintf(
+        "[WLED] Rendering %u holds (%s)\n",
+        static_cast<unsigned>(validHolds.size()),
+        coordinates.c_str());
+    if (ethernetReady())
     {
-        Serial.println("[SERIAL] Reset leds");
-        neoPixelReset();
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the route frame");
+        }
     }
-}
-
-/*
- * Examples of received BLE messages:
- *    - "~Z*"                                     (reset leds)
- *    - "~D,M*l#S69,S4,P82,P8,P57,P49,P28,E54#"   (v2, display hold aboce = true)
- *    - "l#S69,S4,P93,P81,P49,P28,P10,E54#"       (v1)
- *    - "~M*l#S103,E161,L115,R134,F150,M133#"    (v2, display hold above = false)
- *
- * First message part (separator = '#') is the configuration part (v2)
- *    - "~D,M*1" : display light above and below holds = true
- *    - "~M*1" : display light above and below holds = falsetrue
- *    - "1" : light the the problem holds
- *
- * Second message part (separator = '#') is the problem string separated by ','
- *    - format: "S12,P34,...,E56"
- *    - where alpha char:
- *          - S = starting hold
- *          - P = intermediate hold
- *          - E = ending hold
- *          - L = left hold
- *          - R = right hold
- *          - M = match hold
- *          -F = foot hold
- *    - where the following numbers are the LED position on the strip
- */
-
-/**
- * @brief Process the BLE message to light the matching LEDs
- *
- */
-void processProblemMessage()
-{
-    Serial.println("[SERIAL] -----------------");
-    Serial.print("[SERIAL] Problem message: ");
-    Serial.println(problemMessage);
-
-    humanReadableProblemMessage = ' ';
-    int indexComma1 = 0;
-    int indexComma2 = 0;
-    while (indexComma2 != -1)
+    else
     {
-        indexComma2 = problemMessage.indexOf(',', indexComma1);
-        String holdMessage = problemMessage.substring(indexComma1, indexComma2);
-        indexComma1 = indexComma2 + 1;
-
-        char holdType = holdMessage[0];                      // holdType is the first char of the string
-        int holdPosition = holdMessage.substring(1).toInt(); // holdPosition start at second char of the string
-        neoPixelShowHold(holdType, holdPosition);            // light the hold on the board
+        appLogLine("[WLED] Render deferred: Ethernet is not ready");
     }
     ledAboveHoldEnabled = false;
 }
 
-/**
- * @brief Check LEDs by cycling through the colors red, green, blue and then turning the LEDs off again
- *
- */
-void neoPixelCheck()
+void maintainBle()
 {
-    CRGB colors[] = {red, green, blue};
-    int fadeDelay = 5;
+    const bool connected = bleSerial.connected();
+    const bool connectionChanged =
+        !bleConnectionStateInitialized || connected != lastBleConnected;
 
-    if (NEOPIXEL_CHECK1_AT_BOOT)
+    if (connectionChanged && connected)
     {
-        bitmapNeoPixelState = true;
-
-        // light each leds one by one
-        for (int indexColor = 0; indexColor < sizeof(colors) / sizeof(CRGB); indexColor++)
-        {
-            for (int i = 0; i < ledsCount; i++)
-            {
-                leds[i * NEOPIXEL_LED_OFFSET] = colors[indexColor];
-                FastLED.show();
-                delay(fadeDelay);
-            }
-        }
-        neoPixelReset();
+        // Keep already-buffered bytes: the app may write the first route
+        // immediately after connecting, before loop() observes the link.
+        protocolParser.reset();
+        appLogLine("[BLE] MoonBoard app connected");
+    }
+    else if (
+        bleConnectionStateInitialized &&
+        connectionChanged &&
+        !connected)
+    {
+        appLogLine("[BLE] MoonBoard app disconnected");
     }
 
-    if (NEOPIXEL_CHECK2_AT_BOOT)
+    MoonboardBleReceiveStats receiveStats;
+    if (bleSerial.takeReceiveStats(receiveStats))
     {
-        bitmapNeoPixelState = true;
-
-        // blink each color
-        for (int indexColor = 0; indexColor < sizeof(colors) / sizeof(CRGB); indexColor++)
-        {
-            delay(fadeDelay * 100);
-            for (int indexLed = 0; indexLed < ledsCount; indexLed++)
-                leds[indexLed * NEOPIXEL_LED_OFFSET] = colors[indexColor];
-            FastLED.show();
-            delay(fadeDelay * 100);
-            neoPixelReset();
-        }
+        appLogPrintf(
+            "[BLE RX] %u write(s), %u byte(s); last=%u, max=%u\n",
+            static_cast<unsigned>(receiveStats.writeCount),
+            static_cast<unsigned>(receiveStats.byteCount),
+            static_cast<unsigned>(receiveStats.lastWriteLength),
+            static_cast<unsigned>(receiveStats.maximumWriteLength));
     }
+
+    if (bleSerial.consumeOverflow())
+    {
+        protocolParser.reset();
+        appLogLine(
+            "[BLE] Receive buffer overflow; waiting for the next route");
+    }
+
+    // Drain received data even during a connection-state transition. The old
+    // BLESerial implementation gated reads on connected(), which could leave
+    // the first app write unprocessed while the ESP32 link state was settling.
+    while (bleSerial.available() > 0)
+    {
+        const int received = bleSerial.read();
+        if (received < 0)
+            break;
+
+        ProtocolMessage message;
+        if (!protocolParser.feed(static_cast<char>(received), message))
+            continue;
+
+        if (message.type == ProtocolMessageType::Configuration)
+            processConfiguration(message.payload);
+        else
+            processProblem(message.payload);
+    }
+
+    if (connectionChanged && !connected)
+        protocolParser.reset();
+    lastBleConnected = connected;
+    bleConnectionStateInitialized = true;
 }
 
-/**
- * @brief Initialization
- *
- */
+bool initializeEthernet()
+{
+    appLogLine("[ETH] Starting Olimex ESP32-POE-ISO Ethernet");
+    if (!ETH.begin())
+    {
+        appLogLine("[ETH] Initialization failed");
+        return false;
+    }
+
+    const unsigned long started = millis();
+    while (
+        !ethernetReady() &&
+        millis() - started < ETHERNET_CONNECT_TIMEOUT_MS)
+    {
+        delay(100);
+    }
+
+    if (!ethernetReady())
+    {
+        appLogLine(
+            "[ETH] No link or DHCP address yet; BLE remains available");
+        return false;
+    }
+
+    appLogPrintf(
+        "[ETH] Connected: %s\n",
+        ETH.localIP().toString().c_str());
+    return true;
+}
+
+void checkWledAtBoot()
+{
+    if (!WLED_CHECK_AT_BOOT || !ethernetReady())
+        return;
+
+    const RgbColor colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE};
+    appLogLine("[WLED] Running network LED check");
+    for (const RgbColor &color : colors)
+    {
+        clearLocalLeds();
+        for (uint16_t position = 0; position < LOGICAL_LED_COUNT; ++position)
+            setLogicalLed(position, color);
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the boot-check frame");
+        }
+        delay(WLED_CHECK_COLOR_DELAY_MS);
+    }
+    resetLights();
+}
+
+void maintainEthernet()
+{
+    const bool ready = ethernetReady();
+    if (ready && !lastEthernetReady)
+    {
+        appLogPrintf(
+            "[ETH] Connected: %s\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[WEB] Open http://%s/logs for the remote live log\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[OTA] Open http://%s/ota for firmware updates\n",
+            ETH.localIP().toString().c_str());
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                calibrationLedActive
+                    ? CALIBRATION_BRIGHTNESS_PERCENT
+                    : runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the reconnect frame");
+        }
+    }
+    else if (!ready && lastEthernetReady)
+    {
+        appLogLine("[ETH] Connection lost");
+    }
+    else if (
+        !ready &&
+        millis() - lastEthernetStatusLog >= ETHERNET_STATUS_LOG_INTERVAL_MS)
+    {
+        appLogLine("[ETH] Waiting for link and DHCP");
+        lastEthernetStatusLog = millis();
+    }
+    lastEthernetReady = ready;
+}
+} // namespace
+
 void setup()
 {
     Serial.begin(115200);
+    delay(200);
+    appLogPrintf(
+        "[SETUP] MoonBoard %s on Olimex ESP32-POE-ISO, firmware %s "
+        "(%s)\n",
+        BOARD_NAME,
+        FIRMWARE_VERSION,
+        FIRMWARE_BUILD_TIMESTAMP);
 
-    // ble setup
-    Serial.println("[SERIAL] OK| BLE init");
-    bleSerial.begin(bleName);
+    loadFirmwareDefaults();
+    std::string settingsMessage;
+    if (settingsStore.load(runtimeSettings, settingsMessage))
+        appLogLine("[SETTINGS] Loaded runtime settings from NVS");
+    else
+        appLogPrintf("[SETTINGS] %s\n", settingsMessage.c_str());
+    applyRuntimeSettings();
 
-    // NeoPixel setup
-    FastLED.addLeds<WS2811, NEOPIXEL_PIN>(leds, ledsCount * NEOPIXEL_LED_OFFSET);
-    FastLED.setBrightness(NEOPIXEL_BRIGHTNESS * 255);
-    FastLED.clear();
-    FastLED.show();
+    if (!wledClient.begin())
+        appLogLine("[SETUP] WLED background output is unavailable");
+    if (!wledClient.validateConfiguration())
+        appLogLine("[SETUP] WLED configuration contains errors");
 
-    Serial.println("[SERIAL] ..| LEDS check");
-    neoPixelCheck();
-    Serial.println("[SERIAL] OK| LEDS check");
-    Serial.println("[SERIAL] OK| Setup");
-    Serial.println("[SERIAL] Waiting APP");
+    if (!validateLedMapping(
+            runtimeSettings.logicalMapping,
+            runtimeSettings.logicalMappingCount,
+            runtimeSettings.physicalLedCount))
+    {
+        appLogLine(
+            "[SETUP] LED mapping contains duplicates or invalid WLED IDs");
+    }
 
-    setupState = true;
+    if (
+        runtimeSettings.kickerLedsEnabled &&
+        !routeAlwaysOnLedConfigurationValid)
+    {
+        appLogLine(
+            "[SETUP] Always-on LED list contains duplicates, mapped LEDs, "
+            "or invalid WLED IDs");
+    }
+
+    appLogLine("[BLE] Starting Nordic UART service as MoonBoard");
+    if (!bleSerial.begin(BLE_NAME))
+        appLogLine("[BLE] Initialization failed");
+
+    lastEthernetReady = initializeEthernet();
+    settingsWebServer.begin(
+        &runtimeSettings,
+        &appLogBuffer(),
+        BOARD_NAME,
+        BOARD_ROWS,
+        saveAndApplyRuntimeSettings,
+        showCalibrationLed,
+        resetLights);
+    appLogLine(
+        "[WEB] Settings, calibration, live log, and OTA listening on port 80");
+    if (ethernetReady())
+    {
+        appLogPrintf(
+            "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[WEB] Open http://%s/logs for the remote live log\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[OTA] Open http://%s/ota for firmware updates\n",
+            ETH.localIP().toString().c_str());
+    }
+    checkWledAtBoot();
+    clearLocalLeds();
+    appLogLine("[SETUP] Waiting for the MoonBoard app");
 }
 
-/**
- * @brief Infinite loop processed by the chip
- *
- */
 void loop()
 {
-    bleConnected = bleSerial.connected();
+    settingsWebServer.handleClient();
+    maintainCalibrationLedTimeout();
+    maintainRouteTimeout();
+    maintainEthernet();
 
-    if (bleConnected)
-    {
-        while (bleSerial.available())
-        {
-            char c = bleSerial.read();
-            // Serial.println(c);
+    maintainBle();
 
-            // detect string delimiters
-            switch (c)
-            {
-            case '~':
-                confMessageStarted = true;
-                break;
-            case '*':
-                confMessageEnded = true;
-                break;
-            case '#':
-                if (!problemMessageStarted)
-                    problemMessageStarted = true;
-                else
-                    problemMessageEnded = true;
-                break;
-            default:
-                break;
-            }
-
-            // conf message
-            if (confMessageStarted)
-            {
-                confMessage.concat(c);
-            }
-            if (confMessageEnded)
-            {
-                processConfMessage();
-                confMessage = "";
-                confMessageStarted = false;
-                confMessageEnded = false;
-            }
-
-            // problem message
-            if (problemMessageStarted && (c != '#'))
-            {
-                problemMessage.concat(c);
-            }
-            if (problemMessageEnded)
-            {
-                neoPixelReset();
-                processProblemMessage();
-                problemMessage = "";
-                problemMessageStarted = false;
-                problemMessageEnded = false;
-            }
-        }
-    }
+    delay(1);
 }
