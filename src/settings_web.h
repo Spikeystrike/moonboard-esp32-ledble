@@ -44,15 +44,27 @@ private:
     void handleOtaPasswordChange();
     void handleOtaUploadData();
     void handleOtaUploadComplete();
-    void sendOtaSetupPage(const std::string &message, int statusCode);
-    void sendOtaLoginPage(const std::string &message, int statusCode);
-    void sendOtaUploadPage(const std::string &message, int statusCode);
+    void sendOtaSetupPage(
+        const std::string &englishMessage,
+        const std::string &germanMessage,
+        int statusCode);
+    void sendOtaLoginPage(
+        const std::string &englishMessage,
+        const std::string &germanMessage,
+        int statusCode);
+    void sendOtaUploadPage(
+        const std::string &englishMessage,
+        const std::string &germanMessage,
+        int statusCode);
     void sendOtaMessagePage(
-        const std::string &title,
-        const std::string &message,
+        const std::string &englishTitle,
+        const std::string &germanTitle,
+        const std::string &englishMessage,
+        const std::string &germanMessage,
         int statusCode);
     void sendOtaHtml(
-        const std::string &title,
+        const std::string &englishTitle,
+        const std::string &germanTitle,
         const std::string &content,
         int statusCode);
     void beginOtaSession();

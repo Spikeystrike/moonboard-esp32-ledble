@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "app_log.h"
+#include "firmware_info.h"
 
 namespace
 {
@@ -18,11 +19,11 @@ constexpr uint32_t OTA_RESTART_DELAY_MS = 1500;
 constexpr size_t OTA_SESSION_RANDOM_BYTES = 24;
 
 const char SETTINGS_PAGE[] PROGMEM = R"HTML(
-<!doctype html><html lang="de"><head><meta charset="utf-8">
+<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoonBoard Bridge</title><style>
 :root{font-family:system-ui,sans-serif;color:#17202a;background:#eef2f5}
-body{max-width:850px;margin:auto;padding:16px}h1{margin-bottom:4px}
+body{max-width:850px;margin:auto;padding:16px}h1{margin:0 0 4px}.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 section{background:white;border-radius:12px;padding:18px;margin:16px 0;box-shadow:0 2px 10px #0001}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
 label{display:flex;flex-direction:column;gap:5px;font-weight:600}input,textarea,button{font:inherit;padding:9px;border:1px solid #b8c2cc;border-radius:7px}
@@ -30,71 +31,81 @@ input[type=checkbox]{width:auto}label.check{flex-direction:row;align-items:cente
 button{background:#175cd3;color:white;border:0;cursor:pointer}button.secondary{background:#536273}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.status{min-height:24px;font-weight:600}.error{color:#b42318}.ok{color:#027a48}
 textarea{min-height:105px;font-family:monospace;font-weight:400}.hint{color:#536273;font-size:.9rem}
-</style></head><body><h1>MoonBoard Bridge</h1><div id="summary"></div>
-<p><a href="/logs">Live-Log öffnen</a> · <a href="/ota">Firmware aktualisieren</a></p>
-<section><h2>Einstellungen</h2><form id="settings"><div class="grid">
-<label>WLED-Adresse<input id="host" required maxlength="63"></label>
-<label>Gesamte physische LEDs<input id="physical" type="number" min="1" max="2048" required></label>
-<label>WLED-Segment-ID<input id="segment" type="number" min="0" max="255" required></label>
-<label>Routenhelligkeit (%)<input id="boulder" type="number" min="0" max="100" required></label>
-<label>Zusatzlicht oberhalb (%)<input id="above" type="number" min="0" max="100" required></label>
-<label>Abschaltung (Minuten, 0 = nie)<input id="timeout" type="number" min="0" max="65535" required></label>
-<label class="check"><input id="kickerEnabled" type="checkbox"> Kicker-LEDs mit Route einschalten</label>
-<label>Kicker-Farbe<input id="kickerColor" type="color"></label>
-<label style="grid-column:1/-1">Physische Kicker-LED-IDs (CSV)<input id="kickerIds" placeholder="0,3,6,9"></label>
-</div><div class="actions"><button type="submit">Einstellungen speichern</button><button type="button" class="secondary" id="off">Alle LEDs aus</button></div></form></section>
-<section><h2>LED-Kalibrierung</h2><p class="hint">Jede Test-LED wird nach fünf Sekunden automatisch ausgeschaltet. Das Mapping wird nach jeder Zuweisung dauerhaft gespeichert.</p>
-<div class="grid"><label>Logische Position<input id="logical" type="number" min="0"></label>
-<label>MoonBoard-Koordinate<input id="coordinate" readonly></label>
-<label>Physische WLED-ID<input id="mapped" type="number" min="0" max="2047"></label></div>
-<div class="actions"><button type="button" class="secondary" id="previous">Zurück</button><button type="button" class="secondary" id="next">Weiter</button><button type="button" id="testLed">LED testen</button><button type="button" id="assign">Zuordnen und speichern</button></div>
-<h3>Mapping importieren/exportieren</h3><textarea id="mapping"></textarea>
-<div class="actions"><button type="button" class="secondary" id="export">Aktuelles Mapping anzeigen</button><button type="button" id="import">Mapping prüfen und speichern</button></div></section>
-<div id="status" class="status"></div><p class="hint">Einstellungen und Live-Log besitzen keine Anmeldung. Firmware-Updates sind separat passwortgeschützt. Die Oberfläche darf nur in einem vertrauenswürdigen lokalen Netzwerk erreichbar sein.</p>
+.language{font-size:1.45rem;line-height:1;background:#fff;color:#17202a;border:1px solid #b8c2cc;padding:7px 9px;box-shadow:0 1px 4px #0001}footer{margin:22px 0 6px;text-align:center;color:#536273;font-size:.85rem}
+</style></head><body><div class="header"><div><h1>MoonBoard Bridge</h1><div id="summary"></div></div><button id="languageToggle" class="language" type="button" aria-label="Switch language"></button></div>
+<p><a href="/logs"><span data-en="Open live log" data-de="Live-Log öffnen">Open live log</span></a> · <a href="/ota"><span data-en="Update firmware" data-de="Firmware aktualisieren">Update firmware</span></a></p>
+<section><h2><span data-en="Settings" data-de="Einstellungen">Settings</span></h2><form id="settings"><div class="grid">
+<label><span data-en="WLED address" data-de="WLED-Adresse">WLED address</span><input id="host" required maxlength="63"></label>
+<label><span data-en="Total physical LEDs" data-de="Gesamte physische LEDs">Total physical LEDs</span><input id="physical" type="number" min="1" max="2048" required></label>
+<label><span data-en="WLED segment ID" data-de="WLED-Segment-ID">WLED segment ID</span><input id="segment" type="number" min="0" max="255" required></label>
+<label><span data-en="Route brightness (%)" data-de="Routenhelligkeit (%)">Route brightness (%)</span><input id="boulder" type="number" min="0" max="100" required></label>
+<label><span data-en="Additional light above (%)" data-de="Zusatzlicht oberhalb (%)">Additional light above (%)</span><input id="above" type="number" min="0" max="100" required></label>
+<label><span data-en="Turn off after (minutes, 0 = never)" data-de="Abschaltung (Minuten, 0 = nie)">Turn off after (minutes, 0 = never)</span><input id="timeout" type="number" min="0" max="65535" required></label>
+<label class="check"><input id="kickerEnabled" type="checkbox"><span data-en="Enable kicker LEDs with route" data-de="Kicker-LEDs mit Route einschalten">Enable kicker LEDs with route</span></label>
+<label><span data-en="Kicker color" data-de="Kicker-Farbe">Kicker color</span><input id="kickerColor" type="color"></label>
+<label style="grid-column:1/-1"><span data-en="Physical kicker LED IDs (CSV)" data-de="Physische Kicker-LED-IDs (CSV)">Physical kicker LED IDs (CSV)</span><input id="kickerIds" placeholder="0,3,6,9"></label>
+</div><div class="actions"><button type="submit"><span data-en="Save settings" data-de="Einstellungen speichern">Save settings</span></button><button type="button" class="secondary" id="off"><span data-en="Switch off all LEDs" data-de="Alle LEDs aus">Switch off all LEDs</span></button></div></form></section>
+<section><h2><span data-en="LED calibration" data-de="LED-Kalibrierung">LED calibration</span></h2><p class="hint"><span data-en="Each test LED switches off automatically after five seconds. The mapping is stored permanently after every assignment." data-de="Jede Test-LED wird nach fünf Sekunden automatisch ausgeschaltet. Das Mapping wird nach jeder Zuweisung dauerhaft gespeichert.">Each test LED switches off automatically after five seconds. The mapping is stored permanently after every assignment.</span></p>
+<div class="grid"><label><span data-en="Logical position" data-de="Logische Position">Logical position</span><input id="logical" type="number" min="0"></label>
+<label><span data-en="MoonBoard coordinate" data-de="MoonBoard-Koordinate">MoonBoard coordinate</span><input id="coordinate" readonly></label>
+<label><span data-en="Physical WLED ID" data-de="Physische WLED-ID">Physical WLED ID</span><input id="mapped" type="number" min="0" max="2047"></label></div>
+<div class="actions"><button type="button" class="secondary" id="previous"><span data-en="Previous" data-de="Zurück">Previous</span></button><button type="button" class="secondary" id="next"><span data-en="Next" data-de="Weiter">Next</span></button><button type="button" id="testLed"><span data-en="Test LED" data-de="LED testen">Test LED</span></button><button type="button" id="assign"><span data-en="Assign and save" data-de="Zuordnen und speichern">Assign and save</span></button></div>
+<h3><span data-en="Import/export mapping" data-de="Mapping importieren/exportieren">Import/export mapping</span></h3><textarea id="mapping"></textarea>
+<div class="actions"><button type="button" class="secondary" id="export"><span data-en="Show current mapping" data-de="Aktuelles Mapping anzeigen">Show current mapping</span></button><button type="button" id="import"><span data-en="Validate and save mapping" data-de="Mapping prüfen und speichern">Validate and save mapping</span></button></div></section>
+<div id="status" class="status"></div><p class="hint"><span data-en="Settings and the live log have no login. Firmware updates are protected by a separate password. Only expose this interface on a trusted local network." data-de="Einstellungen und Live-Log besitzen keine Anmeldung. Firmware-Updates sind separat passwortgeschützt. Die Oberfläche darf nur in einem vertrauenswürdigen lokalen Netzwerk erreichbar sein.">Settings and the live log have no login. Firmware updates are protected by a separate password. Only expose this interface on a trusted local network.</span></p>
+<footer><span data-en="Firmware" data-de="Firmware">Firmware</span> <span id="firmwareVersion">—</span> · <span data-en="built" data-de="gebaut">built</span> <span id="firmwareBuild">—</span></footer>
 <script>
-let cfg;
+const LANGUAGE_KEY='moonboardLanguage';let language=localStorage.getItem(LANGUAGE_KEY)==='de'?'de':'en',cfg;
 const $=id=>document.getElementById(id);
-function status(text,error=false){$('status').textContent=text;$('status').className='status '+(error?'error':'ok')}
+const tr=(en,de)=>language==='de'?de:en;
+function applyLanguage(){document.documentElement.lang=language;document.querySelectorAll('[data-en][data-de]').forEach(e=>e.textContent=e.dataset[language]);const b=$('languageToggle');b.textContent=language==='en'?'🇩🇪':'🇬🇧';b.title=language==='en'?'Auf Deutsch anzeigen':'Show in English';b.setAttribute('aria-label',b.title);if(cfg)renderSummary()}
+function renderSummary(){$('summary').textContent=`${cfg.board} · ${cfg.logicalLedCount} ${tr('MoonBoard positions','MoonBoard-Positionen')}`}
+function status(en,de,error=false){$('status').textContent=tr(en,de);$('status').className='status '+(error?'error':'ok')}
 function colorHex(c){return '#'+[c.r,c.g,c.b].map(v=>v.toString(16).padStart(2,'0')).join('')}
 function columnName(column){let s='';for(let n=column+1;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s}
 function coordinate(position){const col=Math.floor(position/cfg.boardRows),p=position%cfg.boardRows,row=col%2?cfg.boardRows-p:p+1;return columnName(col)+row}
 function showMapping(){let i=Math.max(0,Math.min(cfg.logicalLedCount-1,Number($('logical').value)||0));$('logical').value=i;$('coordinate').value=coordinate(i);$('mapped').value=cfg.mapping[i]}
-async function post(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.message||'Fehler');return result}
-async function load(){const response=await fetch('/api/config');cfg=await response.json();$('summary').textContent=`${cfg.board} · ${cfg.logicalLedCount} MoonBoard-Positionen`;$('host').value=cfg.wledHost;$('physical').value=cfg.physicalLedCount;$('segment').value=cfg.segmentId;$('boulder').value=cfg.boulderBrightnessPercent;$('above').value=cfg.aboveHoldBrightnessPercent;$('timeout').value=cfg.routeTimeoutMinutes;$('kickerEnabled').checked=cfg.kickerLedsEnabled;$('kickerColor').value=colorHex(cfg.kickerColor);$('kickerIds').value=cfg.kickerIds.join(',');$('logical').max=cfg.logicalLedCount-1;showMapping()}
-$('settings').onsubmit=async e=>{e.preventDefault();try{await post('/api/settings',{host:$('host').value,physical:$('physical').value,segment:$('segment').value,boulder:$('boulder').value,above:$('above').value,timeout:$('timeout').value,kickerEnabled:$('kickerEnabled').checked?'1':'0',kickerColor:$('kickerColor').value,kickerIds:$('kickerIds').value});await load();status('Einstellungen dauerhaft gespeichert.')}catch(e){status(e.message,true)}};
+async function post(path,data){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(data)});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.message||tr('Error','Fehler'));return result}
+async function load(){const response=await fetch('/api/config',{cache:'no-store'});cfg=await response.json();renderSummary();$('firmwareVersion').textContent=cfg.firmwareVersion;$('firmwareBuild').textContent=cfg.firmwareBuild;$('host').value=cfg.wledHost;$('physical').value=cfg.physicalLedCount;$('segment').value=cfg.segmentId;$('boulder').value=cfg.boulderBrightnessPercent;$('above').value=cfg.aboveHoldBrightnessPercent;$('timeout').value=cfg.routeTimeoutMinutes;$('kickerEnabled').checked=cfg.kickerLedsEnabled;$('kickerColor').value=colorHex(cfg.kickerColor);$('kickerIds').value=cfg.kickerIds.join(',');$('logical').max=cfg.logicalLedCount-1;showMapping()}
+$('languageToggle').onclick=()=>{language=language==='en'?'de':'en';localStorage.setItem(LANGUAGE_KEY,language);applyLanguage()};applyLanguage();
+$('settings').onsubmit=async e=>{e.preventDefault();try{await post('/api/settings',{host:$('host').value,physical:$('physical').value,segment:$('segment').value,boulder:$('boulder').value,above:$('above').value,timeout:$('timeout').value,kickerEnabled:$('kickerEnabled').checked?'1':'0',kickerColor:$('kickerColor').value,kickerIds:$('kickerIds').value});await load();status('Settings saved permanently.','Einstellungen dauerhaft gespeichert.')}catch(e){status(e.message,e.message,true)}};
 $('logical').oninput=showMapping;$('previous').onclick=()=>{$('logical').value=Math.max(0,Number($('logical').value)-1);showMapping()};$('next').onclick=()=>{$('logical').value=Math.min(cfg.logicalLedCount-1,Number($('logical').value)+1);showMapping()};
-$('testLed').onclick=async()=>{try{await post('/api/test-led',{physical:$('mapped').value});status('Test-LED für fünf Sekunden eingeschaltet.')}catch(e){status(e.message,true)}};
-$('assign').onclick=async()=>{try{const logical=Number($('logical').value),physical=Number($('mapped').value);await post('/api/mapping',{logical,physical});cfg.mapping[logical]=physical;status(`${coordinate(logical)} wurde WLED-ID ${physical} zugeordnet.`)}catch(e){status(e.message,true)}};
-$('export').onclick=()=>{$('mapping').value=cfg.mapping.join(',');status('Mapping im Textfeld bereitgestellt.')};
-$('import').onclick=async()=>{try{await post('/api/mapping-list',{mapping:$('mapping').value});await load();status('Vollständiges Mapping dauerhaft gespeichert.')}catch(e){status(e.message,true)}};
-$('off').onclick=async()=>{try{await post('/api/off',{});status('Alle LEDs ausgeschaltet.')}catch(e){status(e.message,true)}};
-load().catch(e=>status(e.message,true));
+$('testLed').onclick=async()=>{try{await post('/api/test-led',{physical:$('mapped').value});status('Test LED enabled for five seconds.','Test-LED für fünf Sekunden eingeschaltet.')}catch(e){status(e.message,e.message,true)}};
+$('assign').onclick=async()=>{try{const logical=Number($('logical').value),physical=Number($('mapped').value);await post('/api/mapping',{logical,physical});cfg.mapping[logical]=physical;status(`${coordinate(logical)} was assigned to WLED ID ${physical}.`,`${coordinate(logical)} wurde WLED-ID ${physical} zugeordnet.`)}catch(e){status(e.message,e.message,true)}};
+$('export').onclick=()=>{$('mapping').value=cfg.mapping.join(',');status('Mapping copied to the text field.','Mapping im Textfeld bereitgestellt.')};
+$('import').onclick=async()=>{try{await post('/api/mapping-list',{mapping:$('mapping').value});await load();status('Complete mapping saved permanently.','Vollständiges Mapping dauerhaft gespeichert.')}catch(e){status(e.message,e.message,true)}};
+$('off').onclick=async()=>{try{await post('/api/off',{});status('All LEDs switched off.','Alle LEDs ausgeschaltet.')}catch(e){status(e.message,e.message,true)}};
+load().catch(e=>status(e.message,e.message,true));
 </script></body></html>
 )HTML";
 
 const char LOG_PAGE[] PROGMEM = R"HTML(
-<!doctype html><html lang="de"><head><meta charset="utf-8">
+<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MoonBoard Live-Log</title><style>
 :root{font-family:system-ui,sans-serif;color:#e6edf3;background:#0d1117}
-body{max-width:1100px;margin:auto;padding:16px}a{color:#58a6ff}h1{margin-bottom:4px}
+body{max-width:1100px;margin:auto;padding:16px}a{color:#58a6ff}h1{margin:0 0 4px}.header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}
 button{font:inherit;padding:9px 14px;border:0;border-radius:7px;background:#238636;color:white;cursor:pointer}
 label{display:flex;gap:6px;align-items:center}.state{font-weight:600;color:#3fb950}.error{color:#f85149}
 pre{box-sizing:border-box;min-height:65vh;max-height:75vh;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#010409;border:1px solid #30363d;border-radius:8px;padding:14px;margin:0;color:#c9d1d9}
-.hint{color:#8b949e;font-size:.9rem}
-</style></head><body><h1>MoonBoard Live-Log</h1>
-<p><a href="/">Zurück zu Einstellungen und Kalibrierung</a></p>
-<div class="toolbar"><button id="clear">Anzeige leeren</button><button id="pause">Pausieren</button>
-<label><input id="scroll" type="checkbox" checked> Automatisch scrollen</label><span id="state" class="state">Verbinde …</span></div>
-<pre id="log"></pre><p class="hint">Die letzten 80 Firmwaremeldungen liegen flüchtig im RAM. Ein Neustart löscht den Puffer. Die Seite aktualisiert sich einmal pro Sekunde und besitzt keine Anmeldung.</p>
+.hint,footer{color:#8b949e;font-size:.9rem}.language{font-size:1.45rem;line-height:1;background:#161b22;border:1px solid #30363d;padding:7px 9px}footer{margin:22px 0 6px;text-align:center;font-size:.85rem}
+</style></head><body><div class="header"><h1>MoonBoard Live Log</h1><button id="languageToggle" class="language" type="button" aria-label="Switch language"></button></div>
+<p><a href="/"><span data-en="Back to settings and calibration" data-de="Zurück zu Einstellungen und Kalibrierung">Back to settings and calibration</span></a></p>
+<div class="toolbar"><button id="clear"><span data-en="Clear display" data-de="Anzeige leeren">Clear display</span></button><button id="pause"></button>
+<label><input id="scroll" type="checkbox" checked><span data-en="Auto-scroll" data-de="Automatisch scrollen">Auto-scroll</span></label><span id="state" class="state"></span></div>
+<pre id="log"></pre><p class="hint"><span data-en="The latest 80 firmware messages are stored temporarily in RAM. A restart clears the buffer. This page refreshes once per second and has no login." data-de="Die letzten 80 Firmwaremeldungen liegen flüchtig im RAM. Ein Neustart löscht den Puffer. Die Seite aktualisiert sich einmal pro Sekunde und besitzt keine Anmeldung.">The latest 80 firmware messages are stored temporarily in RAM. A restart clears the buffer. This page refreshes once per second and has no login.</span></p>
+<footer><span data-en="Firmware" data-de="Firmware">Firmware</span> <span id="firmwareVersion">—</span> · <span data-en="built" data-de="gebaut">built</span> <span id="firmwareBuild">—</span></footer>
 <script>
-let after=0,paused=false,busy=false;
-const log=document.getElementById('log'),state=document.getElementById('state'),pause=document.getElementById('pause');
+const LANGUAGE_KEY='moonboardLanguage';let language=localStorage.getItem(LANGUAGE_KEY)==='de'?'de':'en',after=0,paused=false,busy=false;
+const $=id=>document.getElementById(id),tr=(en,de)=>language==='de'?de:en,log=$('log'),state=$('state'),pause=$('pause');
+function updateState(){if(paused){state.textContent=tr('Paused','Pausiert');return}state.textContent=tr('Connecting …','Verbinde …')}
+function applyLanguage(){document.documentElement.lang=language;document.querySelectorAll('[data-en][data-de]').forEach(e=>e.textContent=e.dataset[language]);const b=$('languageToggle');b.textContent=language==='en'?'🇩🇪':'🇬🇧';b.title=language==='en'?'Auf Deutsch anzeigen':'Show in English';b.setAttribute('aria-label',b.title);pause.textContent=paused?tr('Resume','Fortsetzen'):tr('Pause','Pausieren');updateState()}
 function append(entries){for(const entry of entries){const seconds=(entry.ms/1000).toFixed(3).padStart(10,' ');log.append(document.createTextNode(`[${seconds}s] ${entry.text}\n`))}while(log.childNodes.length>500)log.firstChild.remove();if(document.getElementById('scroll').checked)log.scrollTop=log.scrollHeight}
-async function poll(){if(paused||busy)return;busy=true;try{const response=await fetch(`/api/logs?after=${after}`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(result.message||'HTTP-Fehler');append(result.entries);after=result.next;state.textContent='Verbunden';state.className='state'}catch(error){state.textContent=`Nicht verbunden: ${error.message}`;state.className='state error'}finally{busy=false}}
-document.getElementById('clear').onclick=()=>{log.textContent=''};
-pause.onclick=()=>{paused=!paused;pause.textContent=paused?'Fortsetzen':'Pausieren';state.textContent=paused?'Pausiert':'Verbinde …';state.className='state';if(!paused)poll()};
+async function loadVersion(){try{const r=await fetch('/api/config',{cache:'no-store'}),c=await r.json();$('firmwareVersion').textContent=c.firmwareVersion;$('firmwareBuild').textContent=c.firmwareBuild}catch(e){}}
+async function poll(){if(paused||busy)return;busy=true;try{const response=await fetch(`/api/logs?after=${after}`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(result.message||tr('HTTP error','HTTP-Fehler'));append(result.entries);after=result.next;state.textContent=tr('Connected','Verbunden');state.className='state'}catch(error){state.textContent=`${tr('Not connected','Nicht verbunden')}: ${error.message}`;state.className='state error'}finally{busy=false}}
+$('languageToggle').onclick=()=>{language=language==='en'?'de':'en';localStorage.setItem(LANGUAGE_KEY,language);applyLanguage()};$('clear').onclick=()=>{log.textContent=''};
+pause.onclick=()=>{paused=!paused;applyLanguage();state.className='state';if(!paused)poll()};applyLanguage();loadVersion();
 setInterval(poll,1000);poll();
 </script></body></html>
 )HTML";
@@ -144,25 +155,81 @@ std::string htmlEscape(const std::string &value)
     return result;
 }
 
+std::string bilingualText(
+    const std::string &english,
+    const std::string &german)
+{
+    return
+        "<span data-en=\"" + htmlEscape(english) +
+        "\" data-de=\"" + htmlEscape(german) + "\">" +
+        htmlEscape(english) + "</span>";
+}
+
 std::string otaDocument(
-    const std::string &title,
+    const std::string &englishTitle,
+    const std::string &germanTitle,
     const std::string &content)
 {
     return
-        "<!doctype html><html lang=\"de\"><head><meta charset=\"utf-8\">"
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>" + htmlEscape(title) + "</title><style>"
+        "<title>" + htmlEscape(englishTitle) + "</title><style>"
         ":root{font-family:system-ui,sans-serif;color:#17202a;background:#eef2f5}"
         "body{max-width:620px;margin:auto;padding:16px}"
+        ".header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.header h1{margin:0}"
         "section{background:#fff;border-radius:12px;padding:20px;margin:16px 0;box-shadow:0 2px 10px #0001}"
         "label{display:flex;flex-direction:column;gap:5px;font-weight:600;margin:12px 0}"
         "input,button{box-sizing:border-box;width:100%;font:inherit;padding:10px;border:1px solid #b8c2cc;border-radius:7px}"
         "button{background:#175cd3;color:#fff;border:0;cursor:pointer;margin-top:8px}"
+        "button.language{width:auto;font-size:1.45rem;line-height:1;background:#fff;color:#17202a;border:1px solid #b8c2cc;padding:7px 9px;margin:0;box-shadow:0 1px 4px #0001}"
         "button.secondary{background:#536273}.message{padding:10px;border-radius:7px;background:#fff3cd;color:#664d03}"
         ".error{background:#fef3f2;color:#b42318}.ok{background:#ecfdf3;color:#027a48}"
-        ".hint{color:#536273;font-size:.9rem}a{color:#175cd3}"
-        "</style></head><body><h1>MoonBoard Firmware-Update</h1>" +
-        content + "</body></html>";
+        ".hint{color:#536273;font-size:.9rem}a{color:#175cd3}footer{margin:22px 0 6px;text-align:center;color:#536273;font-size:.85rem}"
+        "</style></head><body data-title-en=\"" +
+        htmlEscape(englishTitle) + "\" data-title-de=\"" +
+        htmlEscape(germanTitle) + "\"><div class=\"header\"><h1>" +
+        bilingualText("MoonBoard Firmware Update", "MoonBoard Firmware-Update") +
+        "</h1><button id=\"languageToggle\" class=\"language\" type=\"button\" aria-label=\"Switch language\"></button></div>" +
+        content + "<footer>" +
+        bilingualText("Firmware", "Firmware") + " " +
+        htmlEscape(FIRMWARE_VERSION) + " · " +
+        bilingualText("built", "gebaut") + " " +
+        htmlEscape(FIRMWARE_BUILD_TIMESTAMP) +
+        "</footer><script>const LANGUAGE_KEY='moonboardLanguage';let language=localStorage.getItem(LANGUAGE_KEY)==='de'?'de':'en';const tr=(en,de)=>language==='de'?de:en;function applyLanguage(){document.documentElement.lang=language;document.title=document.body.dataset[language==='de'?'titleDe':'titleEn'];document.querySelectorAll('[data-en][data-de]').forEach(e=>e.textContent=e.dataset[language]);const b=document.getElementById('languageToggle');b.textContent=language==='en'?'🇩🇪':'🇬🇧';b.title=language==='en'?'Auf Deutsch anzeigen':'Show in English';b.setAttribute('aria-label',b.title)}document.getElementById('languageToggle').onclick=()=>{language=language==='en'?'de':'en';localStorage.setItem(LANGUAGE_KEY,language);applyLanguage()};const upload=document.getElementById('upload');if(upload)upload.onsubmit=()=>{const b=document.getElementById('uploadButton');b.disabled=true;b.textContent=tr('Upload in progress …','Upload läuft …')};applyLanguage();</script></body></html>";
+}
+
+std::string englishOtaAuthError(const std::string &german)
+{
+    if (german == "Das Passwort muss 8 bis 64 Zeichen lang sein")
+        return "The password must be 8 to 64 characters long";
+    if (german == "Das Passwort konnte nicht verarbeitet werden")
+        return "The password could not be processed";
+    if (german == "Der OTA-Passwortspeicher konnte nicht geöffnet werden")
+        return "The OTA password storage could not be opened";
+    if (german == "Das OTA-Passwort konnte nicht dauerhaft gespeichert werden")
+        return "The OTA password could not be stored permanently";
+    return german;
+}
+
+std::string germanOtaUploadError(const std::string &english)
+{
+    if (english == "The session has expired")
+        return "Die Anmeldung ist abgelaufen";
+    if (english == "A restart is already pending")
+        return "Ein Neustart ist bereits geplant";
+    if (english == "Please select a PlatformIO firmware.bin file")
+        return "Bitte eine PlatformIO-firmware.bin auswählen";
+    if (english == "The OTA update could not be started")
+        return "Das OTA-Update konnte nicht gestartet werden";
+    if (english == "The firmware could not be written completely")
+        return "Die Firmware konnte nicht vollständig geschrieben werden";
+    if (english == "Firmware verification failed")
+        return "Die Firmwareprüfung ist fehlgeschlagen";
+    if (english == "The upload was aborted")
+        return "Der Upload wurde abgebrochen";
+    if (english == "No firmware file was received")
+        return "Es wurde keine Firmwaredatei empfangen";
+    return english;
 }
 
 std::string randomHexToken()
@@ -286,9 +353,11 @@ void SettingsWebServer::begin(
     server_.collectHeaders(collectedHeaders, 1);
 
     server_.on("/", HTTP_GET, [this]() {
+        server_.sendHeader("Cache-Control", "no-store");
         server_.send_P(200, "text/html; charset=utf-8", SETTINGS_PAGE);
     });
     server_.on("/logs", HTTP_GET, [this]() {
+        server_.sendHeader("Cache-Control", "no-store");
         server_.send_P(200, "text/html; charset=utf-8", LOG_PAGE);
     });
     server_.on("/api/config", HTTP_GET, [this]() { handleConfig(); });
@@ -344,6 +413,10 @@ void SettingsWebServer::handleConfig()
     }
 
     std::string json = "{\"board\":\"" + jsonEscape(boardName_) + "\"";
+    json += ",\"firmwareVersion\":\"" +
+        jsonEscape(FIRMWARE_VERSION) + "\"";
+    json += ",\"firmwareBuild\":\"" +
+        jsonEscape(FIRMWARE_BUILD_TIMESTAMP) + "\"";
     json += ",\"boardRows\":" + std::to_string(boardRows_);
     json += ",\"logicalLedCount\":" +
         std::to_string(settings_->logicalMappingCount);
@@ -379,6 +452,7 @@ void SettingsWebServer::handleConfig()
         json += std::to_string(settings_->logicalMapping[index]);
     }
     json += "]}";
+    server_.sendHeader("Cache-Control", "no-store");
     server_.send(200, "application/json", json.c_str());
 }
 
@@ -578,15 +652,15 @@ void SettingsWebServer::handleOtaPage()
 {
     if (!otaAuth_.configured())
     {
-        sendOtaSetupPage(std::string(), 200);
+        sendOtaSetupPage(std::string(), std::string(), 200);
         return;
     }
     if (!hasValidOtaSession())
     {
-        sendOtaLoginPage(std::string(), 200);
+        sendOtaLoginPage(std::string(), std::string(), 200);
         return;
     }
-    sendOtaUploadPage(std::string(), 200);
+    sendOtaUploadPage(std::string(), std::string(), 200);
 }
 
 void SettingsWebServer::handleOtaSetup()
@@ -604,12 +678,18 @@ void SettingsWebServer::handleOtaSetup()
         !constantTimeEquals(setupToken, otaSetupToken_))
     {
         otaSetupToken_ = randomHexToken();
-        sendOtaSetupPage("Ungültige oder abgelaufene Ersteinrichtung.", 403);
+        sendOtaSetupPage(
+            "Invalid or expired initial setup.",
+            "Ungültige oder abgelaufene Ersteinrichtung.",
+            403);
         return;
     }
     if (!server_.hasArg("password") || !server_.hasArg("confirmation"))
     {
-        sendOtaSetupPage("Bitte beide Passwortfelder ausfüllen.", 400);
+        sendOtaSetupPage(
+            "Please fill in both password fields.",
+            "Bitte beide Passwortfelder ausfüllen.",
+            400);
         return;
     }
 
@@ -617,14 +697,17 @@ void SettingsWebServer::handleOtaSetup()
     const std::string confirmation = server_.arg("confirmation").c_str();
     if (password != confirmation)
     {
-        sendOtaSetupPage("Die Passwörter stimmen nicht überein.", 400);
+        sendOtaSetupPage(
+            "The passwords do not match.",
+            "Die Passwörter stimmen nicht überein.",
+            400);
         return;
     }
 
     std::string error;
     if (!otaAuth_.setPassword(password, error))
     {
-        sendOtaSetupPage(error, 400);
+        sendOtaSetupPage(englishOtaAuthError(error), error, 400);
         return;
     }
 
@@ -639,7 +722,7 @@ void SettingsWebServer::handleOtaLogin()
 {
     if (!otaAuth_.configured())
     {
-        sendOtaSetupPage(std::string(), 200);
+        sendOtaSetupPage(std::string(), std::string(), 200);
         return;
     }
 
@@ -650,7 +733,7 @@ void SettingsWebServer::handleOtaLogin()
     {
         appLogLine("[OTA] Rejected login attempt");
         delay(350);
-        sendOtaLoginPage("Falsches Passwort.", 401);
+        sendOtaLoginPage("Incorrect password.", "Falsches Passwort.", 401);
         return;
     }
 
@@ -674,12 +757,18 @@ void SettingsWebServer::handleOtaPasswordChange()
 {
     if (!otaAuth_.configured() || !hasValidOtaSession())
     {
-        sendOtaLoginPage("Die Anmeldung ist abgelaufen.", 401);
+        sendOtaLoginPage(
+            "The session has expired.",
+            "Die Anmeldung ist abgelaufen.",
+            401);
         return;
     }
     if (!server_.hasArg("password") || !server_.hasArg("confirmation"))
     {
-        sendOtaUploadPage("Bitte beide neuen Passwortfelder ausfüllen.", 400);
+        sendOtaUploadPage(
+            "Please fill in both new password fields.",
+            "Bitte beide neuen Passwortfelder ausfüllen.",
+            400);
         return;
     }
 
@@ -687,20 +776,25 @@ void SettingsWebServer::handleOtaPasswordChange()
     const std::string confirmation = server_.arg("confirmation").c_str();
     if (password != confirmation)
     {
-        sendOtaUploadPage("Die neuen Passwörter stimmen nicht überein.", 400);
+        sendOtaUploadPage(
+            "The new passwords do not match.",
+            "Die neuen Passwörter stimmen nicht überein.",
+            400);
         return;
     }
 
     std::string error;
     if (!otaAuth_.setPassword(password, error))
     {
-        sendOtaUploadPage(error, 400);
+        sendOtaUploadPage(englishOtaAuthError(error), error, 400);
         return;
     }
 
     appLogLine("[OTA] Password changed");
     sendOtaMessagePage(
+        "Password changed",
         "Passwort geändert",
+        "The new OTA password was stored permanently.",
         "Das neue OTA-Passwort wurde dauerhaft gespeichert.",
         200);
 }
@@ -719,12 +813,12 @@ void SettingsWebServer::handleOtaUploadData()
 
         if (!otaUploadAuthorized_)
         {
-            otaUploadError_ = "Die Anmeldung ist abgelaufen";
+            otaUploadError_ = "The session has expired";
             return;
         }
         if (otaRestartPending_)
         {
-            otaUploadError_ = "Ein Neustart ist bereits geplant";
+            otaUploadError_ = "A restart is already pending";
             return;
         }
 
@@ -732,14 +826,14 @@ void SettingsWebServer::handleOtaUploadData()
         filename.toLowerCase();
         if (filename.length() == 0 || !filename.endsWith(".bin"))
         {
-            otaUploadError_ = "Bitte eine PlatformIO-firmware.bin auswählen";
+            otaUploadError_ = "Please select a PlatformIO firmware.bin file";
             return;
         }
         if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH))
         {
             otaUploadError_ = Update.errorString();
             if (otaUploadError_.empty())
-                otaUploadError_ = "Das OTA-Update konnte nicht gestartet werden";
+                otaUploadError_ = "The OTA update could not be started";
             return;
         }
 
@@ -758,7 +852,8 @@ void SettingsWebServer::handleOtaUploadData()
         {
             otaUploadError_ = Update.errorString();
             if (otaUploadError_.empty())
-                otaUploadError_ = "Die Firmware konnte nicht vollständig geschrieben werden";
+                otaUploadError_ =
+                    "The firmware could not be written completely";
             Update.abort();
             otaUploadStarted_ = false;
         }
@@ -774,7 +869,7 @@ void SettingsWebServer::handleOtaUploadData()
         {
             otaUploadError_ = Update.errorString();
             if (otaUploadError_.empty())
-                otaUploadError_ = "Die Firmwareprüfung ist fehlgeschlagen";
+                otaUploadError_ = "Firmware verification failed";
             otaUploadStarted_ = false;
             return;
         }
@@ -789,7 +884,7 @@ void SettingsWebServer::handleOtaUploadData()
             Update.abort();
         otaUploadStarted_ = false;
         otaUploadSucceeded_ = false;
-        otaUploadError_ = "Der Upload wurde abgebrochen";
+        otaUploadError_ = "The upload was aborted";
     }
 }
 
@@ -797,16 +892,22 @@ void SettingsWebServer::handleOtaUploadComplete()
 {
     if (!otaUploadAuthorized_)
     {
-        sendOtaLoginPage("Die Anmeldung ist abgelaufen.", 403);
+        sendOtaLoginPage(
+            "The session has expired.",
+            "Die Anmeldung ist abgelaufen.",
+            403);
         return;
     }
 
     if (!otaUploadSucceeded_)
     {
         if (otaUploadError_.empty())
-            otaUploadError_ = "Es wurde keine Firmwaredatei empfangen";
+            otaUploadError_ = "No firmware file was received";
         appLogPrintf("[OTA] Upload failed: %s\n", otaUploadError_.c_str());
-        sendOtaUploadPage(otaUploadError_, 400);
+        sendOtaUploadPage(
+            otaUploadError_,
+            germanOtaUploadError(otaUploadError_),
+            400);
         return;
     }
 
@@ -814,96 +915,174 @@ void SettingsWebServer::handleOtaUploadComplete()
         "[OTA] Firmware verified: %u bytes\n",
         static_cast<unsigned>(otaUploadSize_));
     sendOtaMessagePage(
+        "Update successful",
         "Update erfolgreich",
-        "Die Firmware wurde geprüft und gespeichert. Der Olimex startet jetzt neu.",
+        "The firmware was verified and stored. The Olimex is restarting now. Reload the page afterwards and verify the version in the footer.",
+        "Die Firmware wurde geprüft und gespeichert. Der Olimex startet jetzt neu. Lade die Seite anschließend neu und prüfe die Version im Footer.",
         200);
     otaRestartPending_ = true;
     otaRestartStartedAtMs_ = static_cast<uint32_t>(millis());
 }
 
 void SettingsWebServer::sendOtaSetupPage(
-    const std::string &message,
+    const std::string &englishMessage,
+    const std::string &germanMessage,
     int statusCode)
 {
     if (otaSetupToken_.empty())
         otaSetupToken_ = randomHexToken();
     std::string content =
-        "<section><h2>OTA-Passwort erstmalig festlegen</h2>"
-        "<p>Vor dem ersten Firmware-Update muss einmalig ein Passwort gesetzt werden. Es bleibt in NVS gespeichert und gilt auch nach späteren Updates.</p>";
-    if (!message.empty())
-        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+        "<section><h2>" +
+        bilingualText(
+            "Set the initial OTA password",
+            "OTA-Passwort erstmalig festlegen") +
+        "</h2><p>" +
+        bilingualText(
+            "A password must be set once before the first firmware update. It is stored in NVS and remains valid after subsequent updates.",
+            "Vor dem ersten Firmware-Update muss einmalig ein Passwort gesetzt werden. Es bleibt in NVS gespeichert und gilt auch nach späteren Updates.") +
+        "</p>";
+    if (!englishMessage.empty() || !germanMessage.empty())
+    {
+        content += "<p class=\"message error\">" +
+            bilingualText(englishMessage, germanMessage) + "</p>";
+    }
     content +=
         "<form method=\"post\" action=\"/ota/setup\">"
         "<input type=\"hidden\" name=\"setupToken\" value=\"" +
         otaSetupToken_ + "\">"
-        "<label>Neues Passwort<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
-        "<label>Passwort wiederholen<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
-        "<button type=\"submit\">Passwort speichern</button></form>"
-        "<p class=\"hint\">Das Passwort wird nur als gesalzener PBKDF2-SHA-256-Prüfwert gespeichert. Da die Seite HTTP verwendet, darf sie nur in einem vertrauenswürdigen lokalen Netzwerk benutzt werden.</p>"
-        "</section><p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
-    sendOtaHtml("OTA-Passwort festlegen", content, statusCode);
+        "<label>" + bilingualText("New password", "Neues Passwort") +
+        "<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<label>" + bilingualText("Repeat password", "Passwort wiederholen") +
+        "<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<button type=\"submit\">" +
+        bilingualText("Save password", "Passwort speichern") +
+        "</button></form><p class=\"hint\">" +
+        bilingualText(
+            "Only a salted PBKDF2-SHA-256 verifier is stored. Because this page uses HTTP, use it only on a trusted local network.",
+            "Das Passwort wird nur als gesalzener PBKDF2-SHA-256-Prüfwert gespeichert. Da die Seite HTTP verwendet, darf sie nur in einem vertrauenswürdigen lokalen Netzwerk benutzt werden.") +
+        "</p></section><p><a href=\"/\">" +
+        bilingualText("Back to settings", "Zurück zu den Einstellungen") +
+        "</a></p>";
+    sendOtaHtml(
+        "Set OTA Password",
+        "OTA-Passwort festlegen",
+        content,
+        statusCode);
 }
 
 void SettingsWebServer::sendOtaLoginPage(
-    const std::string &message,
+    const std::string &englishMessage,
+    const std::string &germanMessage,
     int statusCode)
 {
-    std::string content = "<section><h2>Anmelden</h2>";
-    if (!message.empty())
-        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+    std::string content = "<section><h2>" +
+        bilingualText("Sign in", "Anmelden") + "</h2>";
+    if (!englishMessage.empty() || !germanMessage.empty())
+    {
+        content += "<p class=\"message error\">" +
+            bilingualText(englishMessage, germanMessage) + "</p>";
+    }
     content +=
         "<form method=\"post\" action=\"/ota/login\">"
-        "<label>OTA-Passwort<input type=\"password\" name=\"password\" maxlength=\"64\" autocomplete=\"current-password\" required autofocus></label>"
-        "<button type=\"submit\">Anmelden</button></form>"
-        "<p class=\"hint\">Die Anmeldung bleibt 30 Minuten ab der letzten Aktivität gültig.</p>"
-        "</section><p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
-    sendOtaHtml("OTA-Anmeldung", content, statusCode);
+        "<label>" + bilingualText("OTA password", "OTA-Passwort") +
+        "<input type=\"password\" name=\"password\" maxlength=\"64\" autocomplete=\"current-password\" required autofocus></label>"
+        "<button type=\"submit\">" + bilingualText("Sign in", "Anmelden") +
+        "</button></form><p class=\"hint\">" +
+        bilingualText(
+            "The session remains valid for 30 minutes after the last activity.",
+            "Die Anmeldung bleibt 30 Minuten ab der letzten Aktivität gültig.") +
+        "</p></section><p><a href=\"/\">" +
+        bilingualText("Back to settings", "Zurück zu den Einstellungen") +
+        "</a></p>";
+    sendOtaHtml("OTA Sign-in", "OTA-Anmeldung", content, statusCode);
 }
 
 void SettingsWebServer::sendOtaUploadPage(
-    const std::string &message,
+    const std::string &englishMessage,
+    const std::string &germanMessage,
     int statusCode)
 {
-    std::string content = "<section><h2>Firmware hochladen</h2>";
-    if (!message.empty())
-        content += "<p class=\"message error\">" + htmlEscape(message) + "</p>";
+    std::string content = "<section><h2>" +
+        bilingualText("Upload firmware", "Firmware hochladen") + "</h2>";
+    if (!englishMessage.empty() || !germanMessage.empty())
+    {
+        content += "<p class=\"message error\">" +
+            bilingualText(englishMessage, germanMessage) + "</p>";
+    }
     content +=
-        "<p>Wähle ausschließlich die von PlatformIO erzeugte Datei <code>.pio/build/olimex-esp32-poe-iso/firmware.bin</code>. Bootloader- oder Partitionsdateien sind hier nicht geeignet.</p>"
-        "<p class=\"hint\">Verfügbarer OTA-Slot: etwa " +
+        "<p>" +
+        bilingualText(
+            "Select only the file generated by PlatformIO:",
+            "Wähle ausschließlich die von PlatformIO erzeugte Datei:") +
+        " <code>.pio/build/olimex-esp32-poe-iso/firmware.bin</code>. " +
+        bilingualText(
+            "Bootloader and partition files are not suitable here.",
+            "Bootloader- oder Partitionsdateien sind hier nicht geeignet.") +
+        "</p><p class=\"hint\">" +
+        bilingualText("Available OTA slot: about", "Verfügbarer OTA-Slot: etwa") +
+        " " +
         std::to_string(ESP.getFreeSketchSpace() / 1024) +
-        " KiB. Strom und Netzwerk während des Uploads nicht trennen.</p>"
+        " KiB. " +
+        bilingualText(
+            "Do not disconnect power or network during the upload.",
+            "Strom und Netzwerk während des Uploads nicht trennen.") +
+        "</p>"
         "<form id=\"upload\" method=\"post\" action=\"/ota/upload\" enctype=\"multipart/form-data\">"
-        "<label>Firmwaredatei<input type=\"file\" name=\"firmware\" accept=\".bin,application/octet-stream\" required></label>"
-        "<button id=\"uploadButton\" type=\"submit\">Firmware hochladen</button></form>"
-        "<script>document.getElementById('upload').onsubmit=()=>{const b=document.getElementById('uploadButton');b.disabled=true;b.textContent='Upload läuft …';}</script>"
-        "</section><section><h2>OTA-Passwort ändern</h2>"
+        "<label>" + bilingualText("Firmware file", "Firmwaredatei") +
+        "<input type=\"file\" name=\"firmware\" accept=\".bin,application/octet-stream\" required></label>"
+        "<button id=\"uploadButton\" type=\"submit\">" +
+        bilingualText("Upload firmware", "Firmware hochladen") +
+        "</button></form></section><section><h2>" +
+        bilingualText("Change OTA password", "OTA-Passwort ändern") +
+        "</h2>"
         "<form method=\"post\" action=\"/ota/password\">"
-        "<label>Neues Passwort<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
-        "<label>Passwort wiederholen<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
-        "<button type=\"submit\" class=\"secondary\">Passwort ändern</button></form></section>"
-        "<form method=\"post\" action=\"/ota/logout\"><button type=\"submit\" class=\"secondary\">Abmelden</button></form>"
-        "<p><a href=\"/\">Zurück zu den Einstellungen</a></p>";
-    sendOtaHtml("Firmware hochladen", content, statusCode);
+        "<label>" + bilingualText("New password", "Neues Passwort") +
+        "<input type=\"password\" name=\"password\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<label>" + bilingualText("Repeat password", "Passwort wiederholen") +
+        "<input type=\"password\" name=\"confirmation\" minlength=\"8\" maxlength=\"64\" autocomplete=\"new-password\" required></label>"
+        "<button type=\"submit\" class=\"secondary\">" +
+        bilingualText("Change password", "Passwort ändern") +
+        "</button></form></section><form method=\"post\" action=\"/ota/logout\"><button type=\"submit\" class=\"secondary\">" +
+        bilingualText("Sign out", "Abmelden") +
+        "</button></form><p><a href=\"/\">" +
+        bilingualText("Back to settings", "Zurück zu den Einstellungen") +
+        "</a></p>";
+    sendOtaHtml(
+        "Upload Firmware",
+        "Firmware hochladen",
+        content,
+        statusCode);
 }
 
 void SettingsWebServer::sendOtaMessagePage(
-    const std::string &title,
-    const std::string &message,
+    const std::string &englishTitle,
+    const std::string &germanTitle,
+    const std::string &englishMessage,
+    const std::string &germanMessage,
     int statusCode)
 {
     const std::string content =
-        "<section><h2>" + htmlEscape(title) + "</h2>"
-        "<p class=\"message ok\">" + htmlEscape(message) + "</p>"
-        "<p><a href=\"/ota\">Zurück zum Firmware-Update</a></p></section>";
-    sendOtaHtml(title, content, statusCode);
+        "<section><h2>" + bilingualText(englishTitle, germanTitle) +
+        "</h2><p class=\"message ok\">" +
+        bilingualText(englishMessage, germanMessage) +
+        "</p><p><a href=\"/ota\">" +
+        bilingualText(
+            "Back to firmware update",
+            "Zurück zum Firmware-Update") +
+        "</a></p></section>";
+    sendOtaHtml(englishTitle, germanTitle, content, statusCode);
 }
 
 void SettingsWebServer::sendOtaHtml(
-    const std::string &title,
+    const std::string &englishTitle,
+    const std::string &germanTitle,
     const std::string &content,
     int statusCode)
 {
-    const std::string page = otaDocument(title, content);
+    const std::string page = otaDocument(
+        englishTitle,
+        germanTitle,
+        content);
     server_.sendHeader("Cache-Control", "no-store");
     server_.sendHeader("X-Content-Type-Options", "nosniff");
     server_.sendHeader(

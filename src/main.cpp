@@ -8,6 +8,7 @@
 
 #include "app_log.h"
 #include "config.h"
+#include "firmware_info.h"
 #include "led_mapping.h"
 #include "moonboard_ble.h"
 #include "moonboard_protocol.h"
@@ -548,8 +549,11 @@ void setup()
     Serial.begin(115200);
     delay(200);
     appLogPrintf(
-        "[SETUP] MoonBoard %s on Olimex ESP32-POE-ISO\n",
-        BOARD_NAME);
+        "[SETUP] MoonBoard %s on Olimex ESP32-POE-ISO, firmware %s "
+        "(%s)\n",
+        BOARD_NAME,
+        FIRMWARE_VERSION,
+        FIRMWARE_BUILD_TIMESTAMP);
 
     loadFirmwareDefaults();
     std::string settingsMessage;

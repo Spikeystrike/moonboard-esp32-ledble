@@ -86,11 +86,17 @@ network.
 
 ### Remote live log
 
-Open `http://<olimex-ip>/logs` or use the **Live-Log öffnen** link on the setup
+Open `http://<olimex-ip>/logs` or use the **Open live log** link on the setup
 page. The view updates once per second and shows the same application-level
 Ethernet, BLE, WLED, calibration, and settings messages that are written to the
 USB serial monitor. It can be paused, cleared locally, and configured to stop
 automatic scrolling.
+
+All web pages use English by default. The flag button in the upper-right corner
+switches between English and German, and the choice is retained in the
+browser's local storage. The footer shows firmware version `1.0.0` and the
+compile timestamp. The same information is available from `/api/config` and in
+the startup log, so the running version can be checked after an OTA restart.
 
 The firmware retains only the most recent 80 messages in a fixed-size RAM ring
 buffer. Logs are deliberately not written to flash and are lost when the
@@ -100,7 +106,7 @@ and is intended only for a trusted local network.
 
 ### Firmware updates over Ethernet (OTA)
 
-Open `http://<olimex-ip>/ota` or use **Firmware aktualisieren** on the settings
+Open `http://<olimex-ip>/ota` or use **Update firmware** on the settings
 page. On the first visit, the firmware requires an OTA password with 8 to 64
 characters and stores only a salted PBKDF2-SHA-256 verification value in a
 separate NVS namespace. The password and all other saved settings survive OTA
