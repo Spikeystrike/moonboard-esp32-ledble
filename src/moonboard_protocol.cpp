@@ -39,6 +39,9 @@ bool MoonboardProtocolParser::feed(char value, ProtocolMessage &message)
 {
     if (value == '~')
     {
+        // A new configuration prefix is also a hard synchronization point.
+        // Drop any incomplete frame left by a previous BLE connection.
+        reset();
         configurationStarted_ = true;
         configuration_ = "~";
         return false;
@@ -55,6 +58,15 @@ bool MoonboardProtocolParser::feed(char value, ProtocolMessage &message)
             configurationStarted_ = false;
             return true;
         }
+        return false;
+    }
+
+    if (value == 'l')
+    {
+        // MoonBoard route frames start with `l#`. Treat the marker as a hard
+        // boundary so a truncated first write cannot swallow the next route.
+        problemStarted_ = false;
+        problem_.clear();
         return false;
     }
 
@@ -78,6 +90,14 @@ bool MoonboardProtocolParser::feed(char value, ProtocolMessage &message)
         problem_ += value;
 
     return false;
+}
+
+void MoonboardProtocolParser::reset()
+{
+    configurationStarted_ = false;
+    problemStarted_ = false;
+    configuration_.clear();
+    problem_.clear();
 }
 
 bool parseProblem(

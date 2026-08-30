@@ -59,6 +59,46 @@ void test_parser_emits_configuration_and_problem()
     TEST_ASSERT_EQUAL_STRING("S69,P82,E54", messages[1].payload.c_str());
 }
 
+void test_parser_recovers_from_truncated_route_at_next_route_marker()
+{
+    MoonboardProtocolParser parser;
+    ProtocolMessage message;
+    const std::string truncated = "l#S1,P2";
+    for (char value : truncated)
+        TEST_ASSERT_FALSE(parser.feed(value, message));
+
+    std::vector<ProtocolMessage> messages;
+    const std::string complete = "l#S3,P4,E5#";
+    for (char value : complete)
+    {
+        if (parser.feed(value, message))
+            messages.push_back(message);
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(1, messages.size());
+    TEST_ASSERT_TRUE(messages[0].type == ProtocolMessageType::Problem);
+    TEST_ASSERT_EQUAL_STRING("S3,P4,E5", messages[0].payload.c_str());
+}
+
+void test_parser_reset_discards_partial_ble_frame()
+{
+    MoonboardProtocolParser parser;
+    ProtocolMessage message;
+    for (char value : std::string("l#S1,P2"))
+        TEST_ASSERT_FALSE(parser.feed(value, message));
+
+    parser.reset();
+    std::vector<ProtocolMessage> messages;
+    for (char value : std::string("l#S7,E8#"))
+    {
+        if (parser.feed(value, message))
+            messages.push_back(message);
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(1, messages.size());
+    TEST_ASSERT_EQUAL_STRING("S7,E8", messages[0].payload.c_str());
+}
+
 void test_problem_parser_accepts_known_hold_types()
 {
     std::vector<MoonboardHold> holds;
@@ -330,6 +370,8 @@ int main(int argc, char **argv)
 {
     UNITY_BEGIN();
     RUN_TEST(test_parser_emits_configuration_and_problem);
+    RUN_TEST(test_parser_recovers_from_truncated_route_at_next_route_marker);
+    RUN_TEST(test_parser_reset_discards_partial_ble_frame);
     RUN_TEST(test_problem_parser_accepts_known_hold_types);
     RUN_TEST(test_problem_parser_rejects_malformed_tokens);
     RUN_TEST(test_snake_coordinates_and_above_hold_mapping);

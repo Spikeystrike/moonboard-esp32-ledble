@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <BLESerial.h>
 #include <ETH.h>
 
 #include <algorithm>
@@ -10,6 +9,7 @@
 #include "app_log.h"
 #include "config.h"
 #include "led_mapping.h"
+#include "moonboard_ble.h"
 #include "moonboard_protocol.h"
 #include "route_timeout.h"
 #include "runtime_settings.h"
@@ -17,7 +17,7 @@
 #include "settings_web.h"
 #include "wled_client.h"
 
-BLESerial bleSerial;
+MoonboardBleServer bleSerial;
 MoonboardProtocolParser protocolParser;
 RuntimeSettings runtimeSettings = {};
 WledControllerConfig runtimeWledController = {
@@ -44,6 +44,8 @@ uint32_t routeStartedAtMs = 0;
 bool calibrationLedActive = false;
 uint32_t calibrationLedStartedAtMs = 0;
 unsigned long lastEthernetStatusLog = 0;
+bool lastBleConnected = false;
+bool bleConnectionStateInitialized = false;
 
 namespace
 {
@@ -381,6 +383,59 @@ void processProblem(const std::string &message)
     ledAboveHoldEnabled = false;
 }
 
+void maintainBle()
+{
+    const bool connected = bleSerial.connected();
+    const bool connectionChanged =
+        !bleConnectionStateInitialized || connected != lastBleConnected;
+
+    if (connectionChanged && connected)
+    {
+        // Keep already-buffered bytes: the app may write the first route
+        // immediately after connecting, before loop() observes the link.
+        protocolParser.reset();
+        appLogLine("[BLE] MoonBoard app connected");
+    }
+    else if (
+        bleConnectionStateInitialized &&
+        connectionChanged &&
+        !connected)
+    {
+        appLogLine("[BLE] MoonBoard app disconnected");
+    }
+
+    if (bleSerial.consumeOverflow())
+    {
+        protocolParser.reset();
+        appLogLine(
+            "[BLE] Receive buffer overflow; waiting for the next route");
+    }
+
+    // Drain received data even during a connection-state transition. The old
+    // BLESerial implementation gated reads on connected(), which could leave
+    // the first app write unprocessed while the ESP32 link state was settling.
+    while (bleSerial.available() > 0)
+    {
+        const int received = bleSerial.read();
+        if (received < 0)
+            break;
+
+        ProtocolMessage message;
+        if (!protocolParser.feed(static_cast<char>(received), message))
+            continue;
+
+        if (message.type == ProtocolMessageType::Configuration)
+            processConfiguration(message.payload);
+        else
+            processProblem(message.payload);
+    }
+
+    if (connectionChanged && !connected)
+        protocolParser.reset();
+    lastBleConnected = connected;
+    bleConnectionStateInitialized = true;
+}
+
 bool initializeEthernet()
 {
     appLogLine("[ETH] Starting Olimex ESP32-POE-ISO Ethernet");
@@ -517,7 +572,7 @@ void setup()
     }
 
     appLogLine("[BLE] Starting Nordic UART service as MoonBoard");
-    if (!bleSerial.begin(const_cast<char *>(BLE_NAME)))
+    if (!bleSerial.begin(BLE_NAME))
         appLogLine("[BLE] Initialization failed");
 
     lastEthernetReady = initializeEthernet();
@@ -555,21 +610,7 @@ void loop()
     maintainRouteTimeout();
     maintainEthernet();
 
-    if (bleSerial.connected())
-    {
-        while (bleSerial.available())
-        {
-            const char value = static_cast<char>(bleSerial.read());
-            ProtocolMessage message;
-            if (!protocolParser.feed(value, message))
-                continue;
-
-            if (message.type == ProtocolMessageType::Configuration)
-                processConfiguration(message.payload);
-            else
-                processProblem(message.payload);
-        }
-    }
+    maintainBle();
 
     delay(1);
 }

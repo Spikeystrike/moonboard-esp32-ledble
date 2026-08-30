@@ -253,8 +253,9 @@ pio device monitor
 The PlatformIO board ID is `esp32-poe-iso`, and the build is pinned to
 PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two application slots
 of about 1.9 MB each, which provide both enough room for BLE, Ethernet, HTTP,
-and OTA and an inactive target slot for safe updates. The BLESerial dependency
-is pinned to a commit instead of tracking a moving branch.
+and OTA and an inactive target slot for safe updates. The built-in MoonBoard
+BLE server accepts both acknowledged writes and writes without response, as
+used by current versions of the MoonBoard app.
 
 ## Tests
 

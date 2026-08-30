@@ -27,6 +27,7 @@ class MoonboardProtocolParser
 {
 public:
     bool feed(char value, ProtocolMessage &message);
+    void reset();
 
 private:
     bool configurationStarted_ = false;
