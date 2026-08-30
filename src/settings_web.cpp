@@ -191,6 +191,9 @@ std::string otaDocument(
         "button.language{width:auto;font-size:1.45rem;line-height:1;background:#fff;color:#17202a;border:1px solid #b8c2cc;padding:7px 9px;margin:0;box-shadow:0 1px 4px #0001}"
         "button.secondary{background:#536273}.message{padding:10px;border-radius:7px;background:#fff3cd;color:#664d03}"
         ".error{background:#fef3f2;color:#b42318}.ok{background:#ecfdf3;color:#027a48}"
+        ".drop-zone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:92px;padding:16px;border:2px dashed #8fa3b8;border-radius:10px;background:#f8fafc;text-align:center;transition:border-color .15s,background .15s}"
+        ".drop-zone.drag-over{border-color:#175cd3;background:#eaf2ff}.drop-zone.invalid{border-color:#b42318;background:#fef3f2;color:#b42318}"
+        ".drop-zone strong{font-size:1.05rem}.drop-zone .hint{margin:0}"
         ".hint{color:#536273;font-size:.9rem}a{color:#175cd3}footer{margin:22px 0 6px;text-align:center;color:#536273;font-size:.85rem}"
         "</style></head><body data-title-en=\"" +
         htmlEscape(englishTitle) + "\" data-title-de=\"" +
@@ -202,7 +205,22 @@ std::string otaDocument(
         htmlEscape(FIRMWARE_VERSION) + " · " +
         bilingualText("built", "gebaut") + " " +
         htmlEscape(FIRMWARE_BUILD_TIMESTAMP) +
-        "</footer><script>const LANGUAGE_KEY='moonboardLanguage';let language=localStorage.getItem(LANGUAGE_KEY)==='de'?'de':'en';const tr=(en,de)=>language==='de'?de:en;function applyLanguage(){document.documentElement.lang=language;document.title=document.body.dataset[language==='de'?'titleDe':'titleEn'];document.querySelectorAll('[data-en][data-de]').forEach(e=>e.textContent=e.dataset[language]);const b=document.getElementById('languageToggle');b.textContent=language==='en'?'🇩🇪':'🇬🇧';b.title=language==='en'?'Auf Deutsch anzeigen':'Show in English';b.setAttribute('aria-label',b.title)}document.getElementById('languageToggle').onclick=()=>{language=language==='en'?'de':'en';localStorage.setItem(LANGUAGE_KEY,language);applyLanguage()};const upload=document.getElementById('upload');if(upload)upload.onsubmit=()=>{const b=document.getElementById('uploadButton');b.disabled=true;b.textContent=tr('Upload in progress …','Upload läuft …')};applyLanguage();</script></body></html>";
+        "</footer><script>"
+        "const LANGUAGE_KEY='moonboardLanguage';"
+        "let language=localStorage.getItem(LANGUAGE_KEY)==='de'?'de':'en';"
+        "let selectedFirmwareName='',firmwareFileError='';"
+        "const tr=(en,de)=>language==='de'?de:en;"
+        "const firmwareInput=document.getElementById('firmwareFile');"
+        "const dropZone=document.getElementById('firmwareDropZone');"
+        "const dropStatus=document.getElementById('firmwareDropStatus');"
+        "function renderFirmwareStatus(){if(!dropStatus)return;dropZone.classList.toggle('invalid',!!firmwareFileError);if(firmwareFileError==='count')dropStatus.textContent=tr('Drop exactly one .bin firmware file.','Ziehe genau eine .bin-Firmwaredatei hierher.');else if(firmwareFileError==='type')dropStatus.textContent=tr('Only a .bin firmware file is accepted.','Es wird nur eine .bin-Firmwaredatei akzeptiert.');else if(firmwareFileError==='assign')dropStatus.textContent=tr('The dropped file could not be selected. Use Browse instead.','Die abgelegte Datei konnte nicht ausgewählt werden. Nutze stattdessen Durchsuchen.');else if(selectedFirmwareName)dropStatus.textContent=tr('Selected: ','Ausgewählt: ')+selectedFirmwareName;else dropStatus.textContent=tr('Drop firmware.bin into this browser window.','Ziehe firmware.bin in dieses Browserfenster.')}"
+        "function validateFirmwareFile(file){firmwareFileError='';selectedFirmwareName='';if(!file){firmwareFileError='count';renderFirmwareStatus();return false}if(!file.name.toLowerCase().endsWith('.bin')){firmwareFileError='type';if(firmwareInput)firmwareInput.value='';renderFirmwareStatus();return false}selectedFirmwareName=file.name;renderFirmwareStatus();return true}"
+        "function applyLanguage(){document.documentElement.lang=language;document.title=document.body.dataset[language==='de'?'titleDe':'titleEn'];document.querySelectorAll('[data-en][data-de]').forEach(e=>e.textContent=e.dataset[language]);const b=document.getElementById('languageToggle');b.textContent=language==='en'?'🇩🇪':'🇬🇧';b.title=language==='en'?'Auf Deutsch anzeigen':'Show in English';b.setAttribute('aria-label',b.title);renderFirmwareStatus()}"
+        "document.getElementById('languageToggle').onclick=()=>{language=language==='en'?'de':'en';localStorage.setItem(LANGUAGE_KEY,language);applyLanguage()};"
+        "if(firmwareInput)firmwareInput.onchange=()=>validateFirmwareFile(firmwareInput.files[0]);"
+        "if(dropZone){let dragDepth=0;document.addEventListener('dragenter',e=>{e.preventDefault();dragDepth++;dropZone.classList.add('drag-over')});document.addEventListener('dragover',e=>e.preventDefault());document.addEventListener('dragleave',e=>{e.preventDefault();dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)dropZone.classList.remove('drag-over')});document.addEventListener('drop',e=>{e.preventDefault();dragDepth=0;dropZone.classList.remove('drag-over');const files=e.dataTransfer&&e.dataTransfer.files;if(!files||files.length!==1){firmwareFileError='count';selectedFirmwareName='';firmwareInput.value='';renderFirmwareStatus();return}if(!files[0].name.toLowerCase().endsWith('.bin')){firmwareFileError='type';selectedFirmwareName='';firmwareInput.value='';renderFirmwareStatus();return}try{firmwareInput.files=files}catch(error){firmwareFileError='assign';selectedFirmwareName='';firmwareInput.value='';renderFirmwareStatus();return}validateFirmwareFile(firmwareInput.files[0])})}"
+        "const upload=document.getElementById('upload');if(upload)upload.onsubmit=e=>{if(!validateFirmwareFile(firmwareInput&&firmwareInput.files[0])){e.preventDefault();return}const b=document.getElementById('uploadButton');b.disabled=true;b.textContent=tr('Upload in progress …','Upload läuft …')};"
+        "applyLanguage();</script></body></html>";
 }
 
 std::string englishOtaAuthError(const std::string &german)
@@ -1114,8 +1132,13 @@ void SettingsWebServer::sendOtaUploadPage(
             "Strom und Netzwerk während des Uploads nicht trennen.") +
         "</p>"
         "<form id=\"upload\" method=\"post\" action=\"/ota/upload\" enctype=\"multipart/form-data\">"
+        "<div id=\"firmwareDropZone\" class=\"drop-zone\"><strong id=\"firmwareDropStatus\" aria-live=\"polite\"></strong><span class=\"hint\">" +
+        bilingualText(
+            "or use Browse below.",
+            "oder nutze unten Durchsuchen.") +
+        "</span></div>"
         "<label>" + bilingualText("Firmware file", "Firmwaredatei") +
-        "<input type=\"file\" name=\"firmware\" accept=\".bin,application/octet-stream\" required></label>"
+        "<input id=\"firmwareFile\" type=\"file\" name=\"firmware\" accept=\".bin,application/octet-stream\" required></label>"
         "<button id=\"uploadButton\" type=\"submit\">" +
         bilingualText("Upload firmware", "Firmware hochladen") +
         "</button></form></section><section><h2>" +

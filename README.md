@@ -94,7 +94,7 @@ automatic scrolling.
 
 All web pages use English by default. The flag button in the upper-right corner
 switches between English and German, and the choice is retained in the
-browser's local storage. The footer shows firmware version `1.2.0` and the
+browser's local storage. The footer shows firmware version `1.3.0` and the
 compile timestamp. The same information is available from `/api/config` and in
 the startup log, so the running version can be checked after an OTA restart.
 
@@ -125,7 +125,9 @@ updates, power loss, and normal firmware uploads.
 Later visits require the password. A successful login creates one random
 in-memory browser session that expires after 30 minutes without activity and
 is discarded whenever the Olimex restarts. The authenticated page also allows
-the OTA password to be changed.
+the OTA password to be changed. A firmware file can either be selected with
+the browser's file picker or dragged anywhere into the OTA page. The page
+accepts exactly one `.bin` file and displays its name before the upload starts.
 
 Build the selected firmware and upload only the corresponding file:
 
