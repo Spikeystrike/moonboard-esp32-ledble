@@ -30,7 +30,8 @@ WledClient wledClient(
     &runtimeWledController,
     1,
     WLED_HTTP_TIMEOUT_MS,
-    WLED_WAKE_DELAY_MS);
+    WLED_WAKE_DELAY_MS,
+    WLED_RETRY_DELAY_MS);
 SettingsStore settingsStore;
 SettingsWebServer settingsWebServer;
 
@@ -180,7 +181,10 @@ void resetLights()
     calibrationLedActive = false;
     clearLocalLeds();
     if (ethernetReady())
-        wledClient.reset();
+    {
+        if (!wledClient.reset())
+            appLogLine("[WLED] Could not queue the reset frame");
+    }
     else
         appLogLine("[WLED] Reset deferred: Ethernet is not ready");
 }
@@ -225,12 +229,12 @@ bool saveAndApplyRuntimeSettings(
     if (!settingsStore.save(candidate, error))
         return false;
 
-    if (ethernetReady())
-        wledClient.reset();
+    if (ethernetReady() && !wledClient.reset())
+        appLogLine("[WLED] Could not queue the old settings reset");
     runtimeSettings = candidate;
     applyRuntimeSettings();
-    if (ethernetReady())
-        wledClient.reset();
+    if (ethernetReady() && !wledClient.reset())
+        appLogLine("[WLED] Could not queue the new settings reset");
     routeActive = false;
     calibrationLedActive = false;
     clearLocalLeds();
@@ -259,7 +263,7 @@ bool showCalibrationLed(uint16_t physicalLed, std::string &error)
             runtimeSettings.physicalLedCount,
             CALIBRATION_BRIGHTNESS_PERCENT))
     {
-        error = "WLED did not accept the calibration frame";
+        error = "The calibration frame could not be queued for WLED";
         return false;
     }
     calibrationLedActive = true;
@@ -301,8 +305,8 @@ void processProblem(const std::string &message)
     {
         appLogLine("[BLE] Ignoring malformed problem message");
         routeActive = false;
-        if (ethernetReady())
-            wledClient.reset();
+        if (ethernetReady() && !wledClient.reset())
+            appLogLine("[WLED] Could not queue the malformed-route reset");
         ledAboveHoldEnabled = false;
         return;
     }
@@ -362,10 +366,13 @@ void processProblem(const std::string &message)
         coordinates.c_str());
     if (ethernetReady())
     {
-        wledClient.render(
-            leds,
-            runtimeSettings.physicalLedCount,
-            runtimeSettings.boulderBrightnessPercent);
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the route frame");
+        }
     }
     else
     {
@@ -416,10 +423,13 @@ void checkWledAtBoot()
         clearLocalLeds();
         for (uint16_t position = 0; position < LOGICAL_LED_COUNT; ++position)
             setLogicalLed(position, color);
-        wledClient.render(
-            leds,
-            runtimeSettings.physicalLedCount,
-            runtimeSettings.boulderBrightnessPercent);
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the boot-check frame");
+        }
         delay(WLED_CHECK_COLOR_DELAY_MS);
     }
     resetLights();
@@ -442,12 +452,15 @@ void maintainEthernet()
         appLogPrintf(
             "[OTA] Open http://%s/ota for firmware updates\n",
             ETH.localIP().toString().c_str());
-        wledClient.render(
-            leds,
-            runtimeSettings.physicalLedCount,
-            calibrationLedActive
-                ? CALIBRATION_BRIGHTNESS_PERCENT
-                : runtimeSettings.boulderBrightnessPercent);
+        if (!wledClient.render(
+                leds,
+                runtimeSettings.physicalLedCount,
+                calibrationLedActive
+                    ? CALIBRATION_BRIGHTNESS_PERCENT
+                    : runtimeSettings.boulderBrightnessPercent))
+        {
+            appLogLine("[WLED] Could not queue the reconnect frame");
+        }
     }
     else if (!ready && lastEthernetReady)
     {
@@ -480,6 +493,8 @@ void setup()
         appLogPrintf("[SETTINGS] %s\n", settingsMessage.c_str());
     applyRuntimeSettings();
 
+    if (!wledClient.begin())
+        appLogLine("[SETUP] WLED background output is unavailable");
     if (!wledClient.validateConfiguration())
         appLogLine("[SETUP] WLED configuration contains errors");
 

@@ -104,6 +104,9 @@ const uint16_t WLED_HTTP_TIMEOUT_MS = 2000;
 // WLED must finish applying the separate on/brightness request before it can
 // reliably accept an individual-pixel frame, especially for the first route.
 const uint16_t WLED_WAKE_DELAY_MS = 100;
+// A failed WLED frame is retried by the background output task. Any newer
+// route replaces the pending retry, so stale routes are never queued up.
+const uint16_t WLED_RETRY_DELAY_MS = 1000;
 
 const char BLE_NAME[] = "MoonBoard";
 

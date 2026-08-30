@@ -60,7 +60,12 @@ void appendJsonString(std::string &json, const char *value)
 } // namespace
 
 LiveLogBuffer::LiveLogBuffer()
+#if defined(ARDUINO)
+    : mutex_(xSemaphoreCreateMutex()),
+      firstEntry_(0),
+#else
     : firstEntry_(0),
+#endif
       entryCount_(0),
       nextSequence_(1)
 {
@@ -69,6 +74,7 @@ LiveLogBuffer::LiveLogBuffer()
 
 void LiveLogBuffer::append(uint32_t timestampMs, const char *message)
 {
+    lock();
     size_t entryIndex = 0;
     if (entryCount_ < LIVE_LOG_ENTRY_CAPACITY)
     {
@@ -91,14 +97,26 @@ void LiveLogBuffer::append(uint32_t timestampMs, const char *message)
         message == nullptr ? "" : message,
         sizeof(entry.message));
     entry.message[sizeof(entry.message) - 1] = '\0';
+    unlock();
 }
 
 size_t LiveLogBuffer::size() const
 {
-    return entryCount_;
+    lock();
+    const size_t result = entryCount_;
+    unlock();
+    return result;
 }
 
 uint32_t LiveLogBuffer::latestSequence() const
+{
+    lock();
+    const uint32_t result = latestSequenceUnlocked();
+    unlock();
+    return result;
+}
+
+uint32_t LiveLogBuffer::latestSequenceUnlocked() const
 {
     if (entryCount_ == 0)
         return 0;
@@ -109,7 +127,8 @@ uint32_t LiveLogBuffer::latestSequence() const
 
 std::string LiveLogBuffer::jsonSince(uint32_t afterSequence) const
 {
-    const uint32_t latest = latestSequence();
+    lock();
+    const uint32_t latest = latestSequenceUnlocked();
     if (afterSequence > latest)
         afterSequence = 0;
 
@@ -135,5 +154,22 @@ std::string LiveLogBuffer::jsonSince(uint32_t afterSequence) const
         json += '}';
     }
     json += "]}";
+    unlock();
     return json;
+}
+
+void LiveLogBuffer::lock() const
+{
+#if defined(ARDUINO)
+    if (mutex_ != nullptr)
+        xSemaphoreTake(mutex_, portMAX_DELAY);
+#endif
+}
+
+void LiveLogBuffer::unlock() const
+{
+#if defined(ARDUINO)
+    if (mutex_ != nullptr)
+        xSemaphoreGive(mutex_);
+#endif
 }

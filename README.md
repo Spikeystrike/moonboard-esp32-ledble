@@ -34,6 +34,8 @@ that every unrelated LED remains dark.
   off together. A value of `0` keeps routes on indefinitely.
 - DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
   BLE remains active and the most recent route is rendered after reconnection.
+- WLED HTTP output runs in a background task, retains only the newest frame,
+  and retries failed transfers without blocking MoonBoard BLE processing.
 - A browser-based setup and calibration page served directly by the Olimex.
 - A remote live-log page that mirrors firmware messages without requiring a
   USB connection.
@@ -213,9 +215,17 @@ off" operation therefore sends a complete black frame but leaves WLED
 logically on. This prevents WLED from dropping the first route frame after it
 was switched off.
 
-Request timeout, boot test, calibration brightness, and BLE name remain
-firmware defaults in `config.h`. The boot test sends three batched WLED frames
-(red, green, and blue), instead of one HTTP request per LED.
+Network transmission runs in a separate FreeRTOS task. The main BLE loop only
+builds a complete frame and places it in a single latest-frame mailbox. If
+another route arrives while WLED is slow or unreachable, it replaces the
+pending older frame instead of building a backlog. A failed newest frame is
+retried after `WLED_RETRY_DELAY_MS`; any route received during that delay takes
+priority immediately. Only the first failure and the later recovery are added
+to the live log, so an offline WLED does not fill the log continuously.
+
+Request timeout, retry delay, boot test, calibration brightness, and BLE name
+remain firmware defaults in `config.h`. The boot test sends three batched WLED
+frames (red, green, and blue), instead of one HTTP request per LED.
 
 ## Build and flash
 

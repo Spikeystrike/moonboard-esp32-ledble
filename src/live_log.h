@@ -3,6 +3,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(ARDUINO)
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
+
 #include <string>
 
 constexpr size_t LIVE_LOG_ENTRY_CAPACITY = 80;
@@ -26,6 +31,13 @@ public:
     std::string jsonSince(uint32_t afterSequence) const;
 
 private:
+    void lock() const;
+    void unlock() const;
+    uint32_t latestSequenceUnlocked() const;
+
+#if defined(ARDUINO)
+    mutable SemaphoreHandle_t mutex_;
+#endif
     LiveLogEntry entries_[LIVE_LOG_ENTRY_CAPACITY];
     size_t firstEntry_;
     size_t entryCount_;
