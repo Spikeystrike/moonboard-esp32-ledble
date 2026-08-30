@@ -26,10 +26,12 @@ String stateUrl(const char *host)
 WledClient::WledClient(
     const WledControllerConfig *controllers,
     size_t controllerCount,
-    uint16_t timeoutMs)
+    uint16_t timeoutMs,
+    uint16_t wakeDelayMs)
     : controllers_(controllers),
       controllerCount_(controllerCount),
-      timeoutMs_(timeoutMs)
+      timeoutMs_(timeoutMs),
+      wakeDelayMs_(wakeDelayMs)
 {
 }
 
@@ -118,10 +120,32 @@ bool WledClient::reset()
     bool success = true;
     for (size_t index = 0; index < controllerCount_; ++index)
     {
-        if (!postJson(controllers_[index], "{\"on\":false,\"bri\":255}"))
+        const WledControllerConfig &controller = controllers_[index];
+        const std::string payload = buildWledClearPayload(controller);
+        if (payload.empty() || !sendPixelFrame(controller, payload))
             success = false;
     }
     return success;
+}
+
+bool WledClient::sendPixelFrame(
+    const WledControllerConfig &controller,
+    const std::string &payload) const
+{
+    if (payload.empty())
+        return false;
+
+    // WLED documents that on/brightness must already be applied before an
+    // individual-pixel request. The HTTP response can arrive before that
+    // state change has fully settled, so leave a short gap before the frame.
+    const bool wakeSucceeded = postJson(
+        controller,
+        "{\"on\":true,\"bri\":255,\"transition\":0}");
+    if (wakeSucceeded && wakeDelayMs_ > 0)
+        delay(wakeDelayMs_);
+
+    const bool frameSucceeded = postJson(controller, payload);
+    return wakeSucceeded && frameSucceeded;
 }
 
 bool WledClient::render(
@@ -140,20 +164,7 @@ bool WledClient::render(
             controller,
             brightnessPercent,
             litLedCount);
-        if (litLedCount == 0)
-        {
-            if (!postJson(controller, "{\"on\":false,\"bri\":255}"))
-                success = false;
-            continue;
-        }
-
-        // WLED requires the device to be on before applying individual-pixel
-        // control. Keep this separate from the full segment frame so a route
-        // displayed from the off state is applied reliably.
-        if (!postJson(controller, "{\"on\":true,\"bri\":255}"))
-            success = false;
-
-        if (!postJson(controller, payload))
+        if (payload.empty() || !sendPixelFrame(controller, payload))
             success = false;
     }
     return success;

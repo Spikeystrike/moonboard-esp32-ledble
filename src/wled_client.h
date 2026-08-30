@@ -13,7 +13,8 @@ public:
     WledClient(
         const WledControllerConfig *controllers,
         size_t controllerCount,
-        uint16_t timeoutMs);
+        uint16_t timeoutMs,
+        uint16_t wakeDelayMs);
 
     bool validateConfiguration() const;
     bool reset();
@@ -29,8 +30,12 @@ private:
     bool postJson(
         const WledControllerConfig &controller,
         const std::string &payload) const;
+    bool sendPixelFrame(
+        const WledControllerConfig &controller,
+        const std::string &payload) const;
 
     const WledControllerConfig *controllers_;
     size_t controllerCount_;
     uint16_t timeoutMs_;
+    uint16_t wakeDelayMs_;
 };

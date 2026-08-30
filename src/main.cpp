@@ -29,7 +29,8 @@ WledControllerConfig runtimeWledController = {
 WledClient wledClient(
     &runtimeWledController,
     1,
-    WLED_HTTP_TIMEOUT_MS);
+    WLED_HTTP_TIMEOUT_MS,
+    WLED_WAKE_DELAY_MS);
 SettingsStore settingsStore;
 SettingsWebServer settingsWebServer;
 

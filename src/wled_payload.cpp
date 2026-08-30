@@ -12,6 +12,26 @@ uint8_t scaleChannel(uint8_t value, uint8_t brightnessPercent)
 }
 } // namespace
 
+std::string buildWledClearPayload(
+    const WledControllerConfig &controller)
+{
+    if (controller.lastGlobalLed < controller.firstGlobalLed)
+        return std::string();
+
+    const uint16_t localLedCount = static_cast<uint16_t>(
+        controller.lastGlobalLed - controller.firstGlobalLed + 1);
+    char payload[160];
+    std::snprintf(
+        payload,
+        sizeof(payload),
+        "{\"seg\":{\"id\":%u,\"start\":0,\"stop\":%u,"
+        "\"fx\":0,\"i\":[0,%u,\"000000\"]}}",
+        controller.segmentId,
+        localLedCount,
+        localLedCount);
+    return std::string(payload);
+}
+
 std::string buildWledStatePayload(
     const RgbColor *leds,
     size_t ledCount,
@@ -70,9 +90,6 @@ std::string buildWledStatePayload(
         pixels += item;
         ++litLedCount;
     }
-
-    if (litLedCount == 0)
-        return std::string();
 
     char prefix[96];
     std::snprintf(

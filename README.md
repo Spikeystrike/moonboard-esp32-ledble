@@ -27,7 +27,7 @@ that every unrelated LED remains dark.
 - Start, hand, foot, finish, left, right, and match-hold colors.
 - The app's `~D` option for an additional dim light above each hold. Route
   colors take precedence if that position is itself part of the route.
-- The app's `~Z*` command for switching all configured WLED controllers off.
+- The app's `~Z*` command for clearing every configured physical LED.
 - An optional list of non-MoonBoard LEDs that stays illuminated while a valid
   route is displayed.
 - An optional route timeout that switches route, above-hold, and kicker LEDs
@@ -106,7 +106,7 @@ possible to walk through the board in order.
 For bulk changes, the full comma-separated mapping can be exported, edited,
 validated, and imported. Physical IDs must be unique, inside the configured
 WLED range, and distinct from kicker LED IDs. **Alle LEDs aus** immediately
-switches off the entire configured WLED controller.
+sets the entire configured WLED range to black.
 
 ### Physical LED mapping
 
@@ -157,7 +157,7 @@ WLED range, and absent from the MoonBoard mapping; invalid values are rejected.
 `ROUTE_TIMEOUT_MINUTES` is the firmware default. The active value can be edited
 on the web page and starts counting whenever a valid route is selected.
 Selecting another route restarts the timer. When it expires, every LED on the
-configured WLED controller is switched off, including above-hold and kicker
+configured WLED controller is set to black, including above-hold and kicker
 LEDs:
 
 ```cpp
@@ -175,6 +175,12 @@ and IPv4 addresses are accepted; WLED must be reachable by unencrypted HTTP
 from the Olimex Ethernet network. The configured segment is resized to the
 complete physical LED range on every route update. A full frame first clears
 all physical LEDs and then sets only route and optional kicker LEDs.
+
+Before each individual-pixel frame, the bridge sends WLED a separate
+on/brightness request and waits 100 ms for it to take effect. An "all LEDs
+off" operation therefore sends a complete black frame but leaves WLED
+logically on. This prevents WLED from dropping the first route frame after it
+was switched off.
 
 Request timeout, boot test, calibration brightness, and BLE name remain
 firmware defaults in `config.h`. The boot test sends three batched WLED frames

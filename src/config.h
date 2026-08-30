@@ -101,6 +101,9 @@ const unsigned long WLED_CHECK_COLOR_DELAY_MS = 500;
 const unsigned long ETHERNET_CONNECT_TIMEOUT_MS = 15000;
 const unsigned long ETHERNET_STATUS_LOG_INTERVAL_MS = 5000;
 const uint16_t WLED_HTTP_TIMEOUT_MS = 2000;
+// WLED must finish applying the separate on/brightness request before it can
+// reliably accept an individual-pixel frame, especially for the first route.
+const uint16_t WLED_WAKE_DELAY_MS = 100;
 
 const char BLE_NAME[] = "MoonBoard";
 

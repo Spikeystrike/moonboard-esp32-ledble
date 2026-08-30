@@ -7,6 +7,9 @@
 
 #include "bridge_types.h"
 
+std::string buildWledClearPayload(
+    const WledControllerConfig &controller);
+
 std::string buildWledStatePayload(
     const RgbColor *leds,
     size_t ledCount,

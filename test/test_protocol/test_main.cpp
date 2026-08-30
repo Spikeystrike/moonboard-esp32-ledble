@@ -123,7 +123,7 @@ void test_wled_payload_uses_local_ids_and_scaled_hex_colors()
         payload.c_str());
 }
 
-void test_wled_payload_is_empty_without_lit_pixels()
+void test_wled_payload_clears_complete_range_without_lit_pixels()
 {
     RgbColor leds[3];
     const WledControllerConfig controller = {
@@ -142,7 +142,27 @@ void test_wled_payload_is_empty_without_lit_pixels()
         litLedCount);
 
     TEST_ASSERT_EQUAL_UINT32(0, litLedCount);
-    TEST_ASSERT_TRUE(payload.empty());
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"seg\":{\"id\":0,\"start\":0,\"stop\":3,\"fx\":0,"
+        "\"i\":[0,3,\"000000\"]}}",
+        payload.c_str());
+}
+
+void test_wled_clear_payload_uses_local_range_and_segment()
+{
+    const WledControllerConfig controller = {
+        "192.0.2.10",
+        100,
+        102,
+        4,
+    };
+
+    const std::string payload = buildWledClearPayload(controller);
+
+    TEST_ASSERT_EQUAL_STRING(
+        "{\"seg\":{\"id\":4,\"start\":0,\"stop\":3,\"fx\":0,"
+        "\"i\":[0,3,\"000000\"]}}",
+        payload.c_str());
 }
 
 void test_explicit_led_mapping_supports_leading_leds_and_gaps()
@@ -314,7 +334,8 @@ int main(int argc, char **argv)
     RUN_TEST(test_problem_parser_rejects_malformed_tokens);
     RUN_TEST(test_snake_coordinates_and_above_hold_mapping);
     RUN_TEST(test_wled_payload_uses_local_ids_and_scaled_hex_colors);
-    RUN_TEST(test_wled_payload_is_empty_without_lit_pixels);
+    RUN_TEST(test_wled_payload_clears_complete_range_without_lit_pixels);
+    RUN_TEST(test_wled_clear_payload_uses_local_range_and_segment);
     RUN_TEST(test_explicit_led_mapping_supports_leading_leds_and_gaps);
     RUN_TEST(test_led_mapping_validation_rejects_duplicates_and_invalid_ids);
     RUN_TEST(test_checked_in_example_mapping_is_valid);
