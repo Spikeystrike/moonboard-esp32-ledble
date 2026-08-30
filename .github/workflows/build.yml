@@ -1,0 +1,75 @@
+name: Build firmware
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Native tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install --disable-pip-version-check "platformio==6.1.19"
+
+      - name: Run native tests
+        run: pio test -e native
+
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: MoonBoard Mini
+            environment: olimex-esp32-poe-iso
+            artifact: moonboard-mini-firmware
+          - name: MoonBoard Standard
+            environment: olimex-esp32-poe-iso-standard
+            artifact: moonboard-standard-firmware
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install --disable-pip-version-check "platformio==6.1.19"
+
+      - name: Build firmware
+        run: pio run -e "${{ matrix.environment }}"
+
+      - name: Stage OTA firmware
+        run: |
+          mkdir -p dist
+          cp ".pio/build/${{ matrix.environment }}/firmware.bin" \
+            "dist/${{ matrix.artifact }}.bin"
+
+      - name: Upload OTA firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: dist/${{ matrix.artifact }}.bin
+          if-no-files-found: error
+          retention-days: 30

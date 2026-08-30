@@ -46,17 +46,17 @@ that every unrelated LED remains dark.
 
 ## Configuration
 
-Only the MoonBoard layout must be selected in
-[`src/config.h`](src/config.h) before flashing. All installation-specific
-values can then be changed without rebuilding the firmware.
+Choose the matching Mini or Standard PlatformIO build environment before
+flashing. All installation-specific values can then be changed without
+rebuilding the firmware.
 
 ### Board layout
 
-Select exactly one layout:
+The two fixed build environments select the layout at compile time:
 
-```cpp
-// #define MOONBOARD_STANDARD
-#define MOONBOARD_MINI
+```text
+olimex-esp32-poe-iso           MoonBoard Mini (default)
+olimex-esp32-poe-iso-standard  MoonBoard Standard
 ```
 
 Switching between Mini and Standard still requires a rebuild because the BLE
@@ -94,7 +94,7 @@ automatic scrolling.
 
 All web pages use English by default. The flag button in the upper-right corner
 switches between English and German, and the choice is retained in the
-browser's local storage. The footer shows firmware version `1.1.0` and the
+browser's local storage. The footer shows firmware version `1.2.0` and the
 compile timestamp. The same information is available from `/api/config` and in
 the startup log, so the running version can be checked after an OTA restart.
 
@@ -127,10 +127,11 @@ in-memory browser session that expires after 30 minutes without activity and
 is discarded whenever the Olimex restarts. The authenticated page also allows
 the OTA password to be changed.
 
-Build the firmware normally and upload only this file:
+Build the selected firmware and upload only the corresponding file:
 
 ```text
-.pio/build/olimex-esp32-poe-iso/firmware.bin
+Mini:      .pio/build/olimex-esp32-poe-iso/firmware.bin
+Standard:  .pio/build/olimex-esp32-poe-iso-standard/firmware.bin
 ```
 
 Do not upload `bootloader.bin` or `partitions.bin` on the OTA page. The update
@@ -247,9 +248,10 @@ frames (red, green, and blue), instead of one HTTP request per LED.
 
 1. Install Visual Studio Code and PlatformIO.
 2. Open this repository.
-3. Select Mini or Standard in `src/config.h`.
+3. Select the Mini or Standard PlatformIO environment listed above.
 4. Connect the Olimex board by USB for the initial flashing.
-5. Build and upload the default `olimex-esp32-poe-iso` environment.
+5. Build and upload the selected environment. The default
+   `olimex-esp32-poe-iso` environment builds the Mini firmware.
 6. Connect Ethernet/PoE. The 115200-baud serial monitor is optional and useful
    for discovering the initial DHCP address or diagnosing startup problems.
 7. Open `http://<olimex-ip>/`, configure WLED, and calibrate the mapping.
@@ -261,10 +263,26 @@ be installed through `http://<olimex-ip>/ota` without reconnecting USB.
 Command-line equivalents:
 
 ```sh
-pio run
-pio run --target upload
-pio device monitor
+pio run -e olimex-esp32-poe-iso
+pio run -e olimex-esp32-poe-iso --target upload
+pio run -e olimex-esp32-poe-iso-standard
+pio run -e olimex-esp32-poe-iso-standard --target upload
+pio device monitor -b 115200
 ```
+
+### Automatic GitHub builds
+
+Every push and pull request runs the native test suite and independently builds
+both MoonBoard layouts in GitHub Actions. A build can also be started manually
+with **Actions > Build firmware > Run workflow**. After a successful run, the
+run's **Artifacts** section contains these OTA-ready downloads:
+
+- `moonboard-mini-firmware-<commit>`
+- `moonboard-standard-firmware-<commit>`
+
+Each archive contains one correspondingly named, OTA-ready `.bin` file. Upload
+that file at `http://<olimex-ip>/ota`; do not upload a bootloader or partition
+file. Artifacts are retained for 30 days.
 
 The PlatformIO board ID is `esp32-poe-iso`, and the build is pinned to
 PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two application slots

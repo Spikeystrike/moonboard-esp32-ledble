@@ -4,14 +4,14 @@
 
 #include "bridge_types.h"
 
-// Select exactly one MoonBoard layout.
-// #define MOONBOARD_STANDARD
+// PlatformIO selects the layout through its build environment. Keep Mini as
+// the fallback for native tests and builds that do not define either layout.
+#if !defined(MOONBOARD_MINI) && !defined(MOONBOARD_STANDARD)
 #define MOONBOARD_MINI
+#endif
 
 #if defined(MOONBOARD_MINI) && defined(MOONBOARD_STANDARD)
 #error "Select only one MoonBoard layout"
-#elif !defined(MOONBOARD_MINI) && !defined(MOONBOARD_STANDARD)
-#error "Select a MoonBoard layout"
 #endif
 
 #if defined(MOONBOARD_MINI)
