@@ -13,6 +13,14 @@ class BLEServer;
 class MoonboardBleCharacteristicCallbacks;
 class MoonboardBleServerCallbacks;
 
+struct MoonboardBleReceiveStats
+{
+    uint32_t writeCount;
+    uint32_t byteCount;
+    size_t lastWriteLength;
+    size_t maximumWriteLength;
+};
+
 class MoonboardBleServer
 {
 public:
@@ -23,6 +31,7 @@ public:
     int available() const;
     int read();
     bool consumeOverflow();
+    bool takeReceiveStats(MoonboardBleReceiveStats &stats);
 
 private:
     static constexpr size_t RECEIVE_CAPACITY = 4096;
@@ -36,6 +45,7 @@ private:
     size_t receiveHead_;
     size_t receiveSize_;
     bool receiveOverflow_;
+    MoonboardBleReceiveStats receiveStats_;
 
     friend class MoonboardBleCharacteristicCallbacks;
     friend class MoonboardBleServerCallbacks;

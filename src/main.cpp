@@ -404,6 +404,17 @@ void maintainBle()
         appLogLine("[BLE] MoonBoard app disconnected");
     }
 
+    MoonboardBleReceiveStats receiveStats;
+    if (bleSerial.takeReceiveStats(receiveStats))
+    {
+        appLogPrintf(
+            "[BLE RX] %u write(s), %u byte(s); last=%u, max=%u\n",
+            static_cast<unsigned>(receiveStats.writeCount),
+            static_cast<unsigned>(receiveStats.byteCount),
+            static_cast<unsigned>(receiveStats.lastWriteLength),
+            static_cast<unsigned>(receiveStats.maximumWriteLength));
+    }
+
     if (bleSerial.consumeOverflow())
     {
         protocolParser.reset();

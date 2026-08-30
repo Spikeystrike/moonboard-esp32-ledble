@@ -13,6 +13,12 @@ constexpr char RX_CHARACTERISTIC_UUID[] =
     "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
 constexpr char TX_CHARACTERISTIC_UUID[] =
     "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
+
+// The current MoonBoard app can send a complete route in one GATT write.
+// A default ATT MTU of 23 only carries 20 payload bytes and can leave the
+// first route without its closing '#'. 517 is the largest ESP32 BLE MTU and
+// still interoperates with clients that negotiate a smaller value.
+constexpr uint16_t PREFERRED_MTU = 517;
 } // namespace
 
 class MoonboardBleServerCallbacks : public BLEServerCallbacks
@@ -55,7 +61,8 @@ MoonboardBleServer::MoonboardBleServer()
       receiveBuffer_{},
       receiveHead_(0),
       receiveSize_(0),
-      receiveOverflow_(false)
+      receiveOverflow_(false),
+      receiveStats_{}
 {
 }
 
@@ -71,6 +78,8 @@ bool MoonboardBleServer::begin(const char *localName)
         return false;
 
     BLEDevice::init(localName);
+    if (BLEDevice::setMTU(PREFERRED_MTU) != ESP_OK)
+        return false;
     server_ = BLEDevice::createServer();
     if (server_ == nullptr)
         return false;
@@ -150,12 +159,37 @@ bool MoonboardBleServer::consumeOverflow()
     return overflowed;
 }
 
+bool MoonboardBleServer::takeReceiveStats(
+    MoonboardBleReceiveStats &stats)
+{
+    if (receiveMutex_ == nullptr)
+        return false;
+    if (xSemaphoreTake(receiveMutex_, portMAX_DELAY) != pdTRUE)
+        return false;
+    if (receiveStats_.writeCount == 0)
+    {
+        xSemaphoreGive(receiveMutex_);
+        return false;
+    }
+
+    stats = receiveStats_;
+    receiveStats_ = {};
+    xSemaphoreGive(receiveMutex_);
+    return true;
+}
+
 void MoonboardBleServer::appendReceived(const std::string &value)
 {
     if (value.empty() || receiveMutex_ == nullptr)
         return;
     if (xSemaphoreTake(receiveMutex_, portMAX_DELAY) != pdTRUE)
         return;
+
+    ++receiveStats_.writeCount;
+    receiveStats_.byteCount += static_cast<uint32_t>(value.size());
+    receiveStats_.lastWriteLength = value.size();
+    if (value.size() > receiveStats_.maximumWriteLength)
+        receiveStats_.maximumWriteLength = value.size();
 
     if (value.size() > RECEIVE_CAPACITY - receiveSize_)
     {

@@ -255,7 +255,11 @@ PlatformIO Espressif32 6.12.0. `min_spiffs.csv` supplies two application slots
 of about 1.9 MB each, which provide both enough room for BLE, Ethernet, HTTP,
 and OTA and an inactive target slot for safe updates. The built-in MoonBoard
 BLE server accepts both acknowledged writes and writes without response, as
-used by current versions of the MoonBoard app.
+used by current versions of the MoonBoard app. It advertises the ESP32's
+maximum ATT MTU so complete route writes from newer app versions are not
+limited to the default 20-byte payload. Each received BLE write is summarized
+in the live log as `[BLE RX]`; this makes MTU or framing problems visible even
+when no complete route has reached the protocol parser yet.
 
 ## Tests
 
