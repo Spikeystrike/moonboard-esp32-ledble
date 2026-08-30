@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "app_log.h"
 #include "config.h"
 #include "led_mapping.h"
 #include "moonboard_protocol.h"
@@ -180,7 +181,7 @@ void resetLights()
     if (ethernetReady())
         wledClient.reset();
     else
-        Serial.println("[WLED] Reset deferred: Ethernet is not ready");
+        appLogLine("[WLED] Reset deferred: Ethernet is not ready");
 }
 
 void maintainRouteTimeout()
@@ -194,7 +195,7 @@ void maintainRouteTimeout()
         return;
     }
 
-    Serial.printf(
+    appLogPrintf(
         "[ROUTE] Timeout after %u minutes; switching all LEDs off\n",
         runtimeSettings.routeTimeoutMinutes);
     resetLights();
@@ -210,7 +211,7 @@ void maintainCalibrationLedTimeout()
         return;
     }
 
-    Serial.println("[CALIBRATION] Test LED timeout; switching all LEDs off");
+    appLogLine("[CALIBRATION] Test LED timeout; switching all LEDs off");
     resetLights();
 }
 
@@ -232,7 +233,7 @@ bool saveAndApplyRuntimeSettings(
     routeActive = false;
     calibrationLedActive = false;
     clearLocalLeds();
-    Serial.println("[SETTINGS] Runtime settings saved to NVS");
+    appLogLine("[SETTINGS] Runtime settings saved to NVS");
     return true;
 }
 
@@ -262,19 +263,19 @@ bool showCalibrationLed(uint16_t physicalLed, std::string &error)
     }
     calibrationLedActive = true;
     calibrationLedStartedAtMs = static_cast<uint32_t>(millis());
-    Serial.printf("[CALIBRATION] Testing physical WLED ID %u\n", physicalLed);
+    appLogPrintf("[CALIBRATION] Testing physical WLED ID %u\n", physicalLed);
     error.clear();
     return true;
 }
 
 void processConfiguration(const std::string &message)
 {
-    Serial.printf("[BLE] Configuration: %s\n", message.c_str());
+    appLogPrintf("[BLE] Configuration: %s\n", message.c_str());
 
     if (message.find("~D") != std::string::npos)
     {
         ledAboveHoldEnabled = true;
-        Serial.println("[BLE] Additional light above each hold enabled");
+        appLogLine("[BLE] Additional light above each hold enabled");
     }
     else if (message.find("~M") != std::string::npos)
     {
@@ -283,21 +284,21 @@ void processConfiguration(const std::string &message)
 
     if (message.find("~Z*") != std::string::npos)
     {
-        Serial.println("[BLE] Reset lights");
+        appLogLine("[BLE] Reset lights");
         resetLights();
     }
 }
 
 void processProblem(const std::string &message)
 {
-    Serial.printf("[BLE] Problem: %s\n", message.c_str());
+    appLogPrintf("[BLE] Problem: %s\n", message.c_str());
     calibrationLedActive = false;
     clearLocalLeds();
 
     std::vector<MoonboardHold> holds;
     if (!parseProblem(message, holds))
     {
-        Serial.println("[BLE] Ignoring malformed problem message");
+        appLogLine("[BLE] Ignoring malformed problem message");
         routeActive = false;
         if (ethernetReady())
             wledClient.reset();
@@ -311,7 +312,7 @@ void processProblem(const std::string &message)
     {
         if (hold.position >= LOGICAL_LED_COUNT)
         {
-            Serial.printf(
+            appLogPrintf(
                 "[BLE] Ignoring out-of-range hold %c%u\n",
                 hold.type,
                 hold.position);
@@ -354,7 +355,7 @@ void processProblem(const std::string &message)
         routeActive = false;
     }
 
-    Serial.printf(
+    appLogPrintf(
         "[WLED] Rendering %u holds (%s)\n",
         static_cast<unsigned>(validHolds.size()),
         coordinates.c_str());
@@ -367,17 +368,17 @@ void processProblem(const std::string &message)
     }
     else
     {
-        Serial.println("[WLED] Render deferred: Ethernet is not ready");
+        appLogLine("[WLED] Render deferred: Ethernet is not ready");
     }
     ledAboveHoldEnabled = false;
 }
 
 bool initializeEthernet()
 {
-    Serial.println("[ETH] Starting Olimex ESP32-POE-ISO Ethernet");
+    appLogLine("[ETH] Starting Olimex ESP32-POE-ISO Ethernet");
     if (!ETH.begin())
     {
-        Serial.println("[ETH] Initialization failed");
+        appLogLine("[ETH] Initialization failed");
         return false;
     }
 
@@ -391,12 +392,12 @@ bool initializeEthernet()
 
     if (!ethernetReady())
     {
-        Serial.println(
+        appLogLine(
             "[ETH] No link or DHCP address yet; BLE remains available");
         return false;
     }
 
-    Serial.printf(
+    appLogPrintf(
         "[ETH] Connected: %s\n",
         ETH.localIP().toString().c_str());
     return true;
@@ -408,7 +409,7 @@ void checkWledAtBoot()
         return;
 
     const RgbColor colors[] = {COLOR_RED, COLOR_GREEN, COLOR_BLUE};
-    Serial.println("[WLED] Running network LED check");
+    appLogLine("[WLED] Running network LED check");
     for (const RgbColor &color : colors)
     {
         clearLocalLeds();
@@ -428,11 +429,14 @@ void maintainEthernet()
     const bool ready = ethernetReady();
     if (ready && !lastEthernetReady)
     {
-        Serial.printf(
+        appLogPrintf(
             "[ETH] Connected: %s\n",
             ETH.localIP().toString().c_str());
-        Serial.printf(
+        appLogPrintf(
             "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[WEB] Open http://%s/logs for the remote live log\n",
             ETH.localIP().toString().c_str());
         wledClient.render(
             leds,
@@ -443,13 +447,13 @@ void maintainEthernet()
     }
     else if (!ready && lastEthernetReady)
     {
-        Serial.println("[ETH] Connection lost");
+        appLogLine("[ETH] Connection lost");
     }
     else if (
         !ready &&
         millis() - lastEthernetStatusLog >= ETHERNET_STATUS_LOG_INTERVAL_MS)
     {
-        Serial.println("[ETH] Waiting for link and DHCP");
+        appLogLine("[ETH] Waiting for link and DHCP");
         lastEthernetStatusLog = millis();
     }
     lastEthernetReady = ready;
@@ -460,27 +464,27 @@ void setup()
 {
     Serial.begin(115200);
     delay(200);
-    Serial.printf(
+    appLogPrintf(
         "[SETUP] MoonBoard %s on Olimex ESP32-POE-ISO\n",
         BOARD_NAME);
 
     loadFirmwareDefaults();
     std::string settingsMessage;
     if (settingsStore.load(runtimeSettings, settingsMessage))
-        Serial.println("[SETTINGS] Loaded runtime settings from NVS");
+        appLogLine("[SETTINGS] Loaded runtime settings from NVS");
     else
-        Serial.printf("[SETTINGS] %s\n", settingsMessage.c_str());
+        appLogPrintf("[SETTINGS] %s\n", settingsMessage.c_str());
     applyRuntimeSettings();
 
     if (!wledClient.validateConfiguration())
-        Serial.println("[SETUP] WLED configuration contains errors");
+        appLogLine("[SETUP] WLED configuration contains errors");
 
     if (!validateLedMapping(
             runtimeSettings.logicalMapping,
             runtimeSettings.logicalMappingCount,
             runtimeSettings.physicalLedCount))
     {
-        Serial.println(
+        appLogLine(
             "[SETUP] LED mapping contains duplicates or invalid WLED IDs");
     }
 
@@ -488,33 +492,37 @@ void setup()
         runtimeSettings.kickerLedsEnabled &&
         !routeAlwaysOnLedConfigurationValid)
     {
-        Serial.println(
+        appLogLine(
             "[SETUP] Always-on LED list contains duplicates, mapped LEDs, "
             "or invalid WLED IDs");
     }
 
-    Serial.println("[BLE] Starting Nordic UART service as MoonBoard");
+    appLogLine("[BLE] Starting Nordic UART service as MoonBoard");
     if (!bleSerial.begin(const_cast<char *>(BLE_NAME)))
-        Serial.println("[BLE] Initialization failed");
+        appLogLine("[BLE] Initialization failed");
 
     lastEthernetReady = initializeEthernet();
     settingsWebServer.begin(
         &runtimeSettings,
+        &appLogBuffer(),
         BOARD_NAME,
         BOARD_ROWS,
         saveAndApplyRuntimeSettings,
         showCalibrationLed,
         resetLights);
-    Serial.println("[WEB] Settings and calibration server listening on port 80");
+    appLogLine("[WEB] Settings, calibration, and live log listening on port 80");
     if (ethernetReady())
     {
-        Serial.printf(
+        appLogPrintf(
             "[WEB] Open http://%s/ for settings and calibration\n",
+            ETH.localIP().toString().c_str());
+        appLogPrintf(
+            "[WEB] Open http://%s/logs for the remote live log\n",
             ETH.localIP().toString().c_str());
     }
     checkWledAtBoot();
     clearLocalLeds();
-    Serial.println("[SETUP] Waiting for the MoonBoard app");
+    appLogLine("[SETUP] Waiting for the MoonBoard app");
 }
 
 void loop()

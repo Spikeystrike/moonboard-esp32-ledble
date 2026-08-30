@@ -6,6 +6,7 @@
 
 #include <string>
 
+#include "app_log.h"
 #include "wled_payload.h"
 
 namespace
@@ -36,7 +37,7 @@ bool WledClient::validateConfiguration() const
 {
     if (controllers_ == nullptr || controllerCount_ == 0)
     {
-        Serial.println("[WLED] No controllers configured");
+        appLogLine("[WLED] No controllers configured");
         return false;
     }
 
@@ -49,7 +50,7 @@ bool WledClient::validateConfiguration() const
             controller.host[0] == '\0' ||
             controller.lastGlobalLed < controller.firstGlobalLed)
         {
-            Serial.printf("[WLED] Invalid controller at index %u\n", index);
+            appLogPrintf("[WLED] Invalid controller at index %u\n", index);
             valid = false;
         }
 
@@ -61,7 +62,7 @@ bool WledClient::validateConfiguration() const
                 candidate.firstGlobalLed <= controller.lastGlobalLed;
             if (overlaps)
             {
-                Serial.printf(
+                appLogPrintf(
                     "[WLED] Controller ranges %u and %u overlap\n",
                     index,
                     other);
@@ -90,7 +91,7 @@ bool WledClient::postJson(
 
     if (!http.begin(networkClient, url))
     {
-        Serial.printf("[WLED] Could not open %s\n", url.c_str());
+        appLogPrintf("[WLED] Could not open %s\n", url.c_str());
         return false;
     }
 
@@ -103,7 +104,7 @@ bool WledClient::postJson(
 
     if (status < 200 || status >= 300)
     {
-        Serial.printf(
+        appLogPrintf(
             "[WLED] POST %s failed with status %d\n",
             url.c_str(),
             status);

@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "led_mapping.h"
+#include "live_log.h"
 #include "moonboard_protocol.h"
 #include "route_timeout.h"
 #include "runtime_settings.h"
@@ -270,6 +271,41 @@ void test_led_id_list_parser_handles_csv_and_rejects_bad_input()
     TEST_ASSERT_FALSE(parseLedIdList("1,2,3,4,5", values, 4, count, error));
 }
 
+void test_live_log_returns_only_new_entries_and_escapes_json()
+{
+    LiveLogBuffer log;
+    log.append(100, "first \"message\"");
+    log.append(250, "second message");
+
+    TEST_ASSERT_EQUAL_UINT32(2, log.size());
+    TEST_ASSERT_EQUAL_UINT32(2, log.latestSequence());
+
+    const std::string all = log.jsonSince(0);
+    TEST_ASSERT_TRUE(all.find("first \\\"message\\\"") != std::string::npos);
+    TEST_ASSERT_TRUE(all.find("second message") != std::string::npos);
+
+    const std::string newEntries = log.jsonSince(1);
+    TEST_ASSERT_TRUE(newEntries.find("first") == std::string::npos);
+    TEST_ASSERT_TRUE(newEntries.find("second message") != std::string::npos);
+}
+
+void test_live_log_is_bounded_and_recovers_after_device_restart()
+{
+    LiveLogBuffer log;
+    log.append(1, "discard-me");
+    for (size_t index = 0; index < LIVE_LOG_ENTRY_CAPACITY; ++index)
+    {
+        const std::string message = "retained-" + std::to_string(index);
+        log.append(static_cast<uint32_t>(index + 2), message.c_str());
+    }
+
+    TEST_ASSERT_EQUAL_UINT32(LIVE_LOG_ENTRY_CAPACITY, log.size());
+    const std::string entries = log.jsonSince(9999);
+    TEST_ASSERT_TRUE(entries.find("discard-me") == std::string::npos);
+    TEST_ASSERT_TRUE(entries.find("retained-0") != std::string::npos);
+    TEST_ASSERT_TRUE(entries.find("retained-79") != std::string::npos);
+}
+
 int main(int argc, char **argv)
 {
     UNITY_BEGIN();
@@ -289,5 +325,7 @@ int main(int argc, char **argv)
     RUN_TEST(test_runtime_settings_validation_accepts_valid_configuration);
     RUN_TEST(test_runtime_settings_validation_rejects_invalid_led_assignments);
     RUN_TEST(test_led_id_list_parser_handles_csv_and_rejects_bad_input);
+    RUN_TEST(test_live_log_returns_only_new_entries_and_escapes_json);
+    RUN_TEST(test_live_log_is_bounded_and_recovers_after_device_restart);
     return UNITY_END();
 }

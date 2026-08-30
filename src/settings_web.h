@@ -5,6 +5,7 @@
 #include <functional>
 #include <string>
 
+#include "live_log.h"
 #include "runtime_settings.h"
 
 class SettingsWebServer
@@ -20,6 +21,7 @@ public:
 
     void begin(
         RuntimeSettings *settings,
+        LiveLogBuffer *liveLog,
         const char *boardName,
         uint8_t boardRows,
         ApplySettingsHandler applySettings,
@@ -29,6 +31,7 @@ public:
 
 private:
     void handleConfig();
+    void handleLogs();
     void handleSettingsUpdate();
     void handleMappingUpdate();
     void handleMappingListUpdate();
@@ -43,6 +46,7 @@ private:
 
     WebServer server_;
     RuntimeSettings *settings_;
+    LiveLogBuffer *liveLog_;
     const char *boardName_;
     uint8_t boardRows_;
     ApplySettingsHandler applySettings_;

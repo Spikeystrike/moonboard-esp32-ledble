@@ -35,6 +35,8 @@ that every unrelated LED remains dark.
 - DHCP over the Olimex Ethernet port. If Ethernet is temporarily unavailable,
   BLE remains active and the most recent route is rendered after reconnection.
 - A browser-based setup and calibration page served directly by the Olimex.
+- A remote live-log page that mirrors firmware messages without requiring a
+  USB connection.
 - Persistent WLED, brightness, timeout, kicker, and mapping settings stored in
   the ESP32's non-volatile storage (NVS).
 
@@ -77,6 +79,20 @@ existing compatible NVS configuration.
 
 The page has no login. It should only be reachable from a trusted local
 network.
+
+### Remote live log
+
+Open `http://<olimex-ip>/logs` or use the **Live-Log öffnen** link on the setup
+page. The view updates once per second and shows the same application-level
+Ethernet, BLE, WLED, calibration, and settings messages that are written to the
+USB serial monitor. It can be paused, cleared locally, and configured to stop
+automatic scrolling.
+
+The firmware retains only the most recent 80 messages in a fixed-size RAM ring
+buffer. Logs are deliberately not written to flash and are lost when the
+Olimex restarts. This avoids flash wear and prevents logging from consuming an
+unbounded amount of memory. Like the settings page, the log page has no login
+and is intended only for a trusted local network.
 
 ### Calibration mode
 
@@ -171,7 +187,8 @@ firmware defaults in `config.h`. The boot test sends three batched WLED frames
 3. Select Mini or Standard in `src/config.h`.
 4. Connect the Olimex board by USB for flashing.
 5. Build and upload the default `olimex-esp32-poe-iso` environment.
-6. Connect Ethernet/PoE and open the serial monitor at 115200 baud.
+6. Connect Ethernet/PoE. The 115200-baud serial monitor is optional and useful
+   for discovering the initial DHCP address or diagnosing startup problems.
 7. Open `http://<olimex-ip>/`, configure WLED, and calibrate the mapping.
 8. Connect the MoonBoard app to the BLE device named `MoonBoard`.
 
@@ -193,8 +210,9 @@ of tracking a moving branch.
 
 The native tests cover BLE message framing, problem parsing, snake-layout
 coordinates, above-hold mapping, explicit and invalid LED mappings, runtime
-settings and CSV parsing, route timeout behavior including `millis()`
-wraparound, WLED pixel IDs, and brightness scaling:
+settings and CSV parsing, the bounded live-log buffer and JSON output, route
+timeout behavior including `millis()` wraparound, WLED pixel IDs, and
+brightness scaling:
 
 ```sh
 pio test -e native
